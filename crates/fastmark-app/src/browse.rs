@@ -7,7 +7,7 @@
 //! search, and dropped. Nothing is ever fully resident: memory stays
 //! proportional to one file's touched pages at a time.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Instant;
@@ -309,4 +309,102 @@ pub fn visible_toc(toc: &[fastmark_core::TocEntry], collapsed: &HashSet<u32>) ->
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// File tree sidebar
+// ---------------------------------------------------------------------------
+
+/// One visible row of the left-hand file tree.
+pub struct TreeRow {
+    pub depth: u32,
+    pub name: String,
+    pub path: PathBuf,
+    pub is_dir: bool,
+    pub expanded: bool,
+}
+
+/// A lazily-expanded directory tree derived from the walker's flat file
+/// list - folders appear only where Markdown files live beneath them, so
+/// there is never a second filesystem scan and empty branches don't clutter
+/// the view. `rows` is rebuilt (cheap, one pass) whenever the walker finds
+/// new files or a folder is expanded/collapsed.
+pub struct FileTree {
+    pub expanded: HashSet<PathBuf>,
+    pub rows: Vec<TreeRow>,
+}
+
+impl FileTree {
+    pub fn new() -> FileTree {
+        FileTree {
+            expanded: HashSet::new(),
+            rows: Vec::new(),
+        }
+    }
+
+    pub fn rebuild(&mut self, entries: &[FileEntry], root: &Path) {
+        // children: dir -> (name, path, is_dir); sorted dirs-first, then
+        // case-insensitive by name.
+        let mut children: HashMap<PathBuf, Vec<(String, PathBuf, bool)>> = HashMap::new();
+        for e in entries {
+            let Ok(rel) = e.path.strip_prefix(root) else {
+                continue;
+            };
+            let comps: Vec<String> = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect();
+            if comps.is_empty() {
+                continue;
+            }
+            let mut dir = root.to_path_buf();
+            for name in &comps[..comps.len() - 1] {
+                let child = dir.join(name);
+                children
+                    .entry(dir.clone())
+                    .or_default()
+                    .push((name.clone(), child.clone(), true));
+                dir = child;
+            }
+            children.entry(dir).or_default().push((
+                comps.last().unwrap().clone(),
+                e.path.clone(),
+                false,
+            ));
+        }
+        for list in children.values_mut() {
+            list.sort_by(|a, b| {
+                b.2.cmp(&a.2)
+                    .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+            });
+        }
+        let mut rows = Vec::new();
+        walk_tree(root, 0, &children, &self.expanded, &mut rows);
+        self.rows = rows;
+    }
+}
+
+fn walk_tree(
+    dir: &Path,
+    depth: u32,
+    children: &HashMap<PathBuf, Vec<(String, PathBuf, bool)>>,
+    expanded: &HashSet<PathBuf>,
+    rows: &mut Vec<TreeRow>,
+) {
+    let Some(kids) = children.get(dir) else {
+        return;
+    };
+    for (name, path, is_dir) in kids {
+        let exp = expanded.contains(path);
+        rows.push(TreeRow {
+            depth,
+            name: name.clone(),
+            path: path.clone(),
+            is_dir: *is_dir,
+            expanded: exp,
+        });
+        if *is_dir && exp {
+            walk_tree(path, depth + 1, children, expanded, rows);
+        }
+    }
 }

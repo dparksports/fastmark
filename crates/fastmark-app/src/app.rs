@@ -17,7 +17,7 @@ use notify::Watcher as _;
 
 use fastmark_core::{search, Document, Parsed, PositionIndex};
 
-use crate::browse::{visible_toc, FilesView, FolderSearch};
+use crate::browse::{visible_toc, FileTree, FilesView, FolderSearch};
 use crate::images::{GpuImageSet, ImageStore};
 use crate::layout::{buffer_height, BlockEstimator, LayoutCtx, LayoutParams, LINE_H};
 use crate::render::{Quad, Renderer};
@@ -34,6 +34,8 @@ enum RowAction {
     /// TOC entry jump; when `toggle_zone` > 0 the left zone folds instead.
     TocJump(u32),
     OpenFile(PathBuf),
+    /// Toggle a file-tree folder (expand/collapse).
+    TreeDir(PathBuf),
     FolderPick(usize),
 }
 
@@ -112,6 +114,12 @@ pub struct App {
     toc_collapsed: HashSet<u32>,
     toc_scroll: usize,
 
+    // File-tree sidebar state.
+    tree: Option<FileTree>,
+    tree_dirty: bool,
+    tree_scroll: usize,
+    last_cursor: Option<(f32, f32)>,
+
     dragging_scrollbar: bool,
     pending_click: bool,
     row_hits: Vec<RowHit>,
@@ -137,7 +145,7 @@ impl App {
             start_file,
             theme,
             toc_open: true,
-            files_sidebar: false,
+            files_sidebar: true,
             window: None,
             renderer: None,
             layout: None,
@@ -161,6 +169,10 @@ impl App {
             folder_gen: 0,
             toc_collapsed: HashSet::new(),
             toc_scroll: 0,
+            tree: None,
+            tree_dirty: true,
+            tree_scroll: 0,
+            last_cursor: None,
             dragging_scrollbar: false,
             pending_click: false,
             row_hits: Vec::new(),
@@ -289,7 +301,11 @@ impl App {
         let (vw, vh) = (size.width as f32, size.height as f32);
         let theme = self.theme;
 
-        let toc_px = if self.toc_open { TOC_W * scale } else { 0.0 };
+        let toc_px = if self.toc_open || self.files_sidebar {
+            TOC_W * scale
+        } else {
+            0.0
+        };
         let avail = vw - toc_px - 2.0 * MARGIN_X * scale;
         let col_px = avail.min(CONTENT_MAX_W * scale);
         let font_px = 15.5 * self.zoom * scale;
@@ -340,7 +356,7 @@ impl App {
             bufs.push(BufRef::Local(Mutex::new(sbuf)));
             areas_meta.push((vw - 190.0 * scale, 16.0 * scale, theme.glyphon(theme.dim)));
 
-            let x0 = 24.0 * scale;
+            let x0 = toc_px + 24.0 * scale;
             let col2 = 300.0 * scale;
             for (vi, ri) in (offset..fs.results.len()).enumerate().take(fit) {
                 let hit = &fs.results[ri];
@@ -459,6 +475,39 @@ impl App {
                 );
                 return;
             };
+            if self.files_sidebar {
+                let root_name = fv
+                    .dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "files".to_string());
+                let root = fv.dir.clone();
+                let entries: Vec<crate::browse::FileEntry> = fv
+                    .entries
+                    .iter()
+                    .map(|e| crate::browse::FileEntry {
+                        path: e.path.clone(),
+                        name: e.name.clone(),
+                    })
+                    .collect();
+                let _ = (root, entries);
+                draw_tree_sidebar(
+                    layout,
+                    &theme,
+                    &mut quads,
+                    &mut bufs,
+                    &mut areas_meta,
+                    &mut self.row_hits,
+                    self.tree.as_ref(),
+                    root_name,
+                    None,
+                    toc_px,
+                    vh,
+                    scale,
+                    font_px,
+                    &mut self.tree_scroll,
+                );
+            }
             let dir_name = fv
                 .dir
                 .file_name()
@@ -477,7 +526,7 @@ impl App {
                 fv.offset = sel + 1 - fit;
             }
             let offset = fv.offset.min(filtered.len());
-            let x0 = 24.0 * scale;
+            let x0 = toc_px + 24.0 * scale;
 
             let tbuf = layout.ui_buffer(
                 &format!("Markdown files — {dir_name}"),
@@ -751,57 +800,29 @@ impl App {
             }
         }
 
-        // Sidebars: outline (synced, collapsible) or sibling files.
-        if let Some(fv) = self.files_view.as_ref().filter(|_| self.files_sidebar) {
-            quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
-            let header = layout.ui_buffer("files", font_px * 0.85, theme.glyphon(theme.faint));
-            bufs.push(BufRef::Local(Mutex::new(header)));
-            areas_meta.push((20.0 * scale, 14.0 * scale, theme.glyphon(theme.faint)));
-            let entry_h = 30.0 * scale;
-            let fit = ((vh - 44.0 * scale) / entry_h).floor() as usize;
-            let cur_path = ds_path.clone();
-            for (i, entry) in fv.entries.iter().enumerate().take(fit) {
-                let y = 40.0 * scale + i as f32 * entry_h;
-                let is_cur = entry.path == cur_path;
-                if is_cur {
-                    quads.push(Quad::new(
-                        0.0,
-                        y - 4.0 * scale,
-                        toc_px,
-                        entry_h,
-                        theme.overlay_bg,
-                    ));
-                    quads.push(Quad::new(0.0, y - 4.0 * scale, 3.0, entry_h, theme.accent));
-                }
-                let nbuf = layout.ui_buffer(
-                    &entry.name,
-                    font_px * 0.84,
-                    if is_cur {
-                        theme.glyphon(theme.fg)
-                    } else {
-                        theme.glyphon(theme.dim)
-                    },
-                );
-                bufs.push(BufRef::Local(Mutex::new(nbuf)));
-                areas_meta.push((18.0 * scale, y, theme.glyphon(theme.fg)));
-                self.row_hits.push(RowHit {
-                    x: 0.0,
-                    y: y - 4.0 * scale,
-                    w: toc_px,
-                    h: entry_h,
-                    toggle_zone: 0.0,
-                    action: RowAction::OpenFile(entry.path.clone()),
-                });
-            }
-            if fv.entries.len() > fit {
-                let more = layout.ui_buffer(
-                    &format!("+{} more…", fv.entries.len() - fit),
-                    font_px * 0.8,
-                    theme.glyphon(theme.faint),
-                );
-                bufs.push(BufRef::Local(Mutex::new(more)));
-                areas_meta.push((18.0 * scale, vh - 30.0 * scale, theme.glyphon(theme.faint)));
-            }
+        // Sidebars: outline (synced, collapsible) or file tree.
+        if self.files_sidebar {
+            let root_name = self
+                .files_view
+                .as_ref()
+                .and_then(|fv| fv.dir.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "files".to_string());
+            draw_tree_sidebar(
+                layout,
+                &theme,
+                &mut quads,
+                &mut bufs,
+                &mut areas_meta,
+                &mut self.row_hits,
+                self.tree.as_ref(),
+                root_name,
+                Some(ds_path),
+                toc_px,
+                vh,
+                scale,
+                font_px,
+                &mut self.tree_scroll,
+            );
         } else if self.toc_open {
             quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
             // Active heading = last heading whose offset is above the
@@ -1154,6 +1175,17 @@ impl App {
                 self.redraw();
             }
             RowAction::OpenFile(path) => self.open_at(path.clone(), None),
+            RowAction::TreeDir(path) => {
+                if let Some(tree) = self.tree.as_mut() {
+                    if tree.expanded.contains(path) {
+                        tree.expanded.remove(path);
+                    } else {
+                        tree.expanded.insert(path.clone());
+                    }
+                    self.tree_dirty = true;
+                }
+                self.redraw();
+            }
             RowAction::FolderPick(i) => {
                 if let Some((path, byte)) = self
                     .folder_search
@@ -1192,6 +1224,87 @@ impl App {
             false
         }
     }
+}
+
+/// Draw the left file-tree sidebar into the shared frame buffers.
+#[allow(clippy::too_many_arguments)]
+fn draw_tree_sidebar(
+    layout: &mut LayoutCtx,
+    theme: &Theme,
+    quads: &mut Vec<Quad>,
+    bufs: &mut Vec<BufRef>,
+    areas_meta: &mut Vec<(f32, f32, glyphon::Color)>,
+    row_hits: &mut Vec<RowHit>,
+    tree: Option<&FileTree>,
+    root_name: String,
+    cur_path: Option<&std::path::Path>,
+    toc_px: f32,
+    vh: f32,
+    scale: f32,
+    font_px: f32,
+    tree_scroll: &mut usize,
+) {
+    quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
+    let header = layout.ui_buffer(&root_name, font_px * 0.85, theme.glyphon(theme.faint));
+    bufs.push(BufRef::Local(Mutex::new(header)));
+    areas_meta.push((18.0 * scale, 14.0 * scale, theme.glyphon(theme.faint)));
+    let entry_h = 28.0 * scale;
+    let fit = ((vh - 40.0 * scale) / entry_h).floor().max(1.0) as usize;
+    let rows = tree.map(|t| t.rows.as_slice()).unwrap_or(&[]);
+    *tree_scroll = (*tree_scroll).min(rows.len().saturating_sub(1));
+    for (vi, row) in rows.iter().enumerate().skip(*tree_scroll).take(fit) {
+        let y = 36.0 * scale + (vi - *tree_scroll) as f32 * entry_h;
+        let indent = 14.0 * scale + row.depth as f32 * 13.0 * scale;
+        let is_cur = !row.is_dir && cur_path == Some(row.path.as_path());
+        if is_cur {
+            quads.push(Quad::new(
+                0.0,
+                y - 3.0 * scale,
+                toc_px,
+                entry_h,
+                theme.overlay_bg,
+            ));
+            quads.push(Quad::new(0.0, y - 3.0 * scale, 3.0, entry_h, theme.accent));
+        }
+        let arrow = if row.is_dir {
+            if row.expanded {
+                "\u{25be}"
+            } else {
+                "\u{25b8}"
+            }
+        } else {
+            ""
+        };
+        if !arrow.is_empty() {
+            let abuf = layout.ui_buffer(arrow, font_px * 0.78, theme.glyphon(theme.dim));
+            bufs.push(BufRef::Local(Mutex::new(abuf)));
+            areas_meta.push((indent, y + 2.0 * scale, theme.glyphon(theme.dim)));
+        }
+        let label = if row.name.chars().count() > 26 {
+            let cut: String = row.name.chars().take(25).collect();
+            cut + "\u{2026}"
+        } else {
+            row.name.clone()
+        };
+        let color = theme.glyphon(if is_cur { theme.fg } else { theme.dim });
+        let nbuf = layout.ui_buffer(&label, font_px * 0.84, color);
+        bufs.push(BufRef::Local(Mutex::new(nbuf)));
+        areas_meta.push((indent + 16.0 * scale, y, color));
+        let action = if row.is_dir {
+            RowAction::TreeDir(row.path.clone())
+        } else {
+            RowAction::OpenFile(row.path.clone())
+        };
+        row_hits.push(RowHit {
+            x: 0.0,
+            y: y - 3.0 * scale,
+            w: toc_px,
+            h: entry_h,
+            toggle_zone: 0.0,
+            action,
+        });
+    }
+    let _ = &root_name;
 }
 
 impl ApplicationHandler for App {
@@ -1254,6 +1367,20 @@ impl ApplicationHandler for App {
                 };
                 if self.modifiers.control_key() {
                     self.zoom_by(if dy > 0.0 { 1.1 } else { 1.0 / 1.1 });
+                } else if self.files_sidebar && {
+                    let sb_scale = self
+                        .window
+                        .as_ref()
+                        .map(|w| w.scale_factor() as f32)
+                        .unwrap_or(1.0);
+                    self.last_cursor
+                        .is_some_and(|(cx, _)| cx < TOC_W * sb_scale)
+                } {
+                    let dir = if dy > 0.0 { -1i32 } else { 1 };
+                    let rows = self.tree.as_ref().map(|t| t.rows.len()).unwrap_or(0);
+                    self.tree_scroll =
+                        (self.tree_scroll as i32 + dir).clamp(0, rows as i32) as usize;
+                    self.redraw();
                 } else if self.folder_search.is_some() || self.doc.is_none() {
                     // List views: wheel steps the selection.
                     let steps = if dy.abs() < 8.0 {
@@ -1281,6 +1408,7 @@ impl ApplicationHandler for App {
             },
             WindowEvent::CursorMoved { position, .. } => {
                 let (x, y) = (position.x as f32, position.y as f32);
+                self.last_cursor = Some((x, y));
                 if self.dragging_scrollbar {
                     if let Some(ds) = self.doc.as_mut() {
                         let total = ds.index.total();
@@ -1366,6 +1494,7 @@ impl ApplicationHandler for App {
                             {
                                 self.ensure_files_view(dir);
                             }
+                            self.tree_dirty = true;
                         }
                         self.redraw();
                     }
@@ -1584,9 +1713,19 @@ impl ApplicationHandler for App {
             self.redraw();
         }
 
-        // File-list walker results.
+        // File-list walker results invalidate the tree; rebuild when the
+        // sidebar is (or is about to be) visible.
         if self.files_view.as_mut().is_some_and(|fv| fv.poll()) {
+            self.tree_dirty = true;
             self.redraw();
+        }
+        if self.tree_dirty && (self.files_sidebar || self.doc.is_none()) {
+            if let Some(fv) = self.files_view.as_ref() {
+                let root = fv.dir.clone();
+                let tree = self.tree.get_or_insert_with(FileTree::new);
+                tree.rebuild(&fv.entries, &root);
+            }
+            self.tree_dirty = false;
         }
 
         // Folder search: progressive results + debounced re-scan on typing.

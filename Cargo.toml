@@ -5,7 +5,7 @@ members = ["crates/fastmark-core", "crates/fastmark-app"]
 [workspace.package]
 # CalVer (semver allows only 3 components): additional releases on the same
 # day keep this version and use revision tags, e.g. v2026.10.20-r1.
-version = "2026.10.20"
+version = "2026.10.21"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/dparksports/fastmark"

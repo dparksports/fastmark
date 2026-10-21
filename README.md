@@ -55,10 +55,15 @@ You can also just **drop any `.md` file onto the window**.
 - **Folder-wide keyword search** — `Ctrl+Shift+F` searches every word in
   every file of the folder (mmap'd one at a time, streamed results with
   file:line and snippet). `Enter` jumps straight to the hit.
+- **File tree on the left** (`F10`, on by default) — a real expandable
+  folder tree of the working directory, derived from the background walker
+  with zero extra filesystem scans: folders appear only where Markdown
+  lives, click ▸/▾ to expand, click a file to open, wheel to scroll, and
+  the current document stays highlighted. Visible both in the browser home
+  and while reading.
 - **Synced, collapsible outline** — the TOC tracks what you're reading and
   auto-scrolls to keep the active heading visible; click a heading's ▸/▾ to
-  fold or unfold any branch. `F10` swaps the outline for a sibling-file
-  sidebar for quick hopping between documents.
+  fold or unfold any branch.
 - Headings, paragraphs, **emphasis**, `inline code`, links, strikethrough
 - Fenced/indented code blocks, block quotes, nested & task lists, rules
 - GFM tables (rendered as aligned monospace grids)
@@ -81,7 +86,7 @@ You can also just **drop any `.md` file onto the window**.
 | `Ctrl+Shift+F` | search every word across the folder |
 | `Ctrl+F` | find within the open document (`Enter`/`F3` next, `Esc` close) |
 | `F9` | outline sidebar (synced, collapsible branches) |
-| `F10` | sibling-files sidebar |
+| `F10` | file-tree sidebar (expand folders, click to open) |
 | `Ctrl+wheel`, `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | zoom |
 | `F8` | toggle dark/light theme |
 | `Esc` | close search / clear filter / quit |
@@ -159,8 +164,6 @@ samples/             demo + bench documents
 - Folder search is keyword-based (case-insensitive substring, ASCII fold);
   true semantic search (embedding models) is a roadmap item — the scan
   architecture is ready for a scorer hook.
-- The sibling-files sidebar lists the first screenful of files; the browser
-  home supports full filtering and scrolling.
 - Search highlight is block-level (accent bar); glyph-precise highlight is
   planned via cosmic-text cursor APIs.
 

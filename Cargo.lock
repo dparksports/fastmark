@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "fastmark-app"
-version = "2026.10.20"
+version = "2026.10.21"
 dependencies = [
  "cosmic-text",
  "fastmark-core",
@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "fastmark-core"
-version = "2026.10.20"
+version = "2026.10.21"
 dependencies = [
  "encoding_rs",
  "memchr",
