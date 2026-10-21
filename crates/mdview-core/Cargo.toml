@@ -1,0 +1,17 @@
+[package]
+name = "mdview-core"
+description = "Memory-efficient Markdown document pipeline: mmap loading, encoding detection, streaming parse to a flat block model, and search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pulldown-cmark = { version = "0.13", default-features = false, features = ["simd"] }
+memmap2 = "0.9"
+encoding_rs = "0.8"
+memchr = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }

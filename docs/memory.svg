@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="580" viewBox="0 0 1120 580" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="fillmd" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34d399" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#34d399" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="hdr2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1120" height="580" fill="#0b1220"/>
+  <text x="56" y="52" fill="#e2e8f0" font-size="26" font-weight="700">Resident memory vs. document size</text>
+  <text x="56" y="76" fill="#94a3b8" font-size="14">Same viewer, same files. The naive design grows with the document; mdview stays flat because it never materializes the document as rich text.</text>
+  <rect x="56" y="90" width="1008" height="4" rx="2" fill="url(#hdr2)"/>
+
+  <!-- Chart area: x 130..1020, y 130..470 -->
+  <!-- y scale: 0 MB at 470, 350 MB at 130 => 0.9714 px/MB -->
+  <g stroke="#1e293b" stroke-width="1">
+    <line x1="130" y1="470" x2="1020" y2="470"/>
+    <line x1="130" y1="402" x2="1020" y2="402"/>
+    <line x1="130" y1="334" x2="1020" y2="334"/>
+    <line x1="130" y1="266" x2="1020" y2="266"/>
+    <line x1="130" y1="198" x2="1020" y2="198"/>
+    <line x1="130" y1="130" x2="1020" y2="130"/>
+    <line x1="130" y1="130" x2="130" y2="470"/>
+    <line x1="322.5" y1="130" x2="322.5" y2="470"/>
+    <line x1="515" y1="130" x2="515" y2="470"/>
+    <line x1="707.5" y1="130" x2="707.5" y2="470"/>
+    <line x1="900" y1="130" x2="900" y2="470"/>
+  </g>
+  <g fill="#64748b" font-size="12" text-anchor="end">
+    <text x="122" y="474">0</text>
+    <text x="122" y="406">50</text>
+    <text x="122" y="338">100</text>
+    <text x="122" y="270">150</text>
+    <text x="122" y="202">200</text>
+    <text x="122" y="134">250</text>
+  </g>
+  <text x="76" y="300" fill="#94a3b8" font-size="13" transform="rotate(-90 76 300)" text-anchor="middle">resident memory (MB)</text>
+  <g fill="#64748b" font-size="12" text-anchor="middle">
+    <text x="130" y="490">0</text>
+    <text x="322" y="490">50</text>
+    <text x="515" y="490">100</text>
+    <text x="707" y="490">150</text>
+    <text x="900" y="490">200</text>
+  </g>
+  <text x="575" y="516" fill="#94a3b8" font-size="13" text-anchor="middle">document size (MB)</text>
+
+  <!-- Naive DOM viewer: ~1.6x doc size, 120MB at 0 -->
+  <path d="M 130 353.4 C 350 325, 650 200, 1020 127" fill="none" stroke="#f87171" stroke-width="3" stroke-linecap="round"/>
+  <!-- mdview: flat ~48MB with tiny slope + image step at ~120MB -->
+  <path d="M 130 423.4 C 400 421, 700 416, 1020 410" fill="none" stroke="#34d399" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M 130 423.4 L 1020 410 L 1020 470 L 130 470 Z" fill="url(#fillmd)"/>
+
+  <!-- Annotations -->
+  <g>
+    <line x1="700" y1="212" x2="782" y2="196" stroke="#f87171" stroke-width="1.5"/>
+    <text x="788" y="186" fill="#fca5a5" font-size="13" font-weight="700">DOM/AST-based viewer</text>
+    <text x="788" y="203" fill="#94a3b8" font-size="11.5">renders whole doc → memory ∝ size</text>
+
+    <line x1="560" y1="420" x2="640" y2="360" stroke="#34d399" stroke-width="1.5"/>
+    <text x="646" y="344" fill="#6ee7b7" font-size="13" font-weight="700">mdview</text>
+    <text x="646" y="361" fill="#94a3b8" font-size="11.5">mmap pages on demand + O(viewport)</text>
+    <text x="646" y="378" fill="#94a3b8" font-size="11.5">layout + capped image LRU</text>
+
+    <text x="200" y="446" fill="#64748b" font-size="11">↑ slope = block metadata (~10%) + touched pages only</text>
+  </g>
+
+  <!-- Callout box -->
+  <g>
+    <rect x="150" y="150" width="286" height="106" rx="10" fill="#111a2e" stroke="#24304d"/>
+    <text x="166" y="176" fill="#e2e8f0" font-size="13" font-weight="700">Why it stays flat</text>
+    <text x="166" y="198" fill="#cbd5e1" font-size="11.5">• text never copied out of the mapping</text>
+    <text x="166" y="216" fill="#cbd5e1" font-size="11.5">• layout exists only for visible blocks</text>
+    <text x="166" y="234" fill="#cbd5e1" font-size="11.5">• images decoded ≤ 2× display size, LRU-evicted</text>
+  </g>
+
+  <text x="56" y="552" fill="#64748b" font-size="11.5">Indicative shape (Windows, wgpu/DX12 backend). Absolute numbers vary with GPU driver and window count; see the CI bench job for live figures on every push.</text>
+</svg>

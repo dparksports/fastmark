@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="600" viewBox="0 0 1120 600" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#818cf8"/>
+    </marker>
+    <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#34d399"/>
+    </marker>
+    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#818cf8"/><stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1120" height="600" fill="#0b1220"/>
+  <text x="56" y="52" fill="#e2e8f0" font-size="26" font-weight="700">mdview — how a document becomes pixels</text>
+  <text x="56" y="76" fill="#94a3b8" font-size="14">A streaming pipeline: every stage holds only what it needs. Nothing ever materializes the whole document as rich text.</text>
+  <rect x="56" y="90" width="1008" height="4" rx="2" fill="url(#hdr)"/>
+
+  <!-- Stage boxes -->
+  <g>
+    <rect x="56" y="130" width="176" height="120" rx="12" fill="#111a2e" stroke="#3b82f6" stroke-width="1.5"/>
+    <text x="144" y="158" fill="#93c5fd" font-size="15" font-weight="700" text-anchor="middle">FILE</text>
+    <text x="144" y="180" fill="#cbd5e1" font-size="12" text-anchor="middle">read-only mmap</text>
+    <text x="144" y="198" fill="#94a3b8" font-size="11" text-anchor="middle">OS owns the pages,</text>
+    <text x="144" y="214" fill="#94a3b8" font-size="11" text-anchor="middle">evicts under pressure</text>
+
+    <rect x="272" y="130" width="176" height="120" rx="12" fill="#111a2e" stroke="#818cf8" stroke-width="1.5"/>
+    <text x="360" y="158" fill="#a5b4fc" font-size="15" font-weight="700" text-anchor="middle">DETECT</text>
+    <text x="360" y="180" fill="#cbd5e1" font-size="12" text-anchor="middle">BOM · UTF-16 · UTF-8</text>
+    <text x="360" y="198" fill="#94a3b8" font-size="11" text-anchor="middle">legacy ANSI files</text>
+    <text x="360" y="214" fill="#94a3b8" font-size="11" text-anchor="middle">transcoded once</text>
+
+    <rect x="488" y="130" width="176" height="120" rx="12" fill="#111a2e" stroke="#818cf8" stroke-width="1.5"/>
+    <text x="576" y="158" fill="#a5b4fc" font-size="15" font-weight="700" text-anchor="middle">PULL PARSE</text>
+    <text x="576" y="180" fill="#cbd5e1" font-size="12" text-anchor="middle">pulldown-cmark events</text>
+    <text x="576" y="198" fill="#94a3b8" font-size="11" text-anchor="middle">→ flat block list,</text>
+    <text x="576" y="214" fill="#94a3b8" font-size="11" text-anchor="middle">text = byte ranges</text>
+
+    <rect x="704" y="130" width="176" height="120" rx="12" fill="#111a2e" stroke="#34d399" stroke-width="1.5"/>
+    <text x="792" y="158" fill="#6ee7b7" font-size="15" font-weight="700" text-anchor="middle">VIRTUAL LAYOUT</text>
+    <text x="792" y="180" fill="#cbd5e1" font-size="12" text-anchor="middle">cosmic-text shaping</text>
+    <text x="792" y="198" fill="#94a3b8" font-size="11" text-anchor="middle">only blocks near the</text>
+    <text x="792" y="214" fill="#94a3b8" font-size="11" text-anchor="middle">viewport, LRU-cached</text>
+
+    <rect x="920" y="130" width="144" height="120" rx="12" fill="#111a2e" stroke="#fbbf24" stroke-width="1.5"/>
+    <text x="992" y="158" fill="#fcd34d" font-size="15" font-weight="700" text-anchor="middle">RENDER</text>
+    <text x="992" y="180" fill="#cbd5e1" font-size="12" text-anchor="middle">wgpu · DX12</text>
+    <text x="992" y="198" fill="#94a3b8" font-size="11" text-anchor="middle">glyphon glyph</text>
+    <text x="992" y="214" fill="#94a3b8" font-size="11" text-anchor="middle">atlas + quads</text>
+  </g>
+
+  <!-- Arrows between stages -->
+  <g stroke="#818cf8" stroke-width="2.5" fill="none">
+    <line x1="232" y1="190" x2="266" y2="190" marker-end="url(#arr)"/>
+    <line x1="448" y1="190" x2="482" y2="190" marker-end="url(#arr)"/>
+    <line x1="664" y1="190" x2="698" y2="190" marker-end="url(#arr)"/>
+    <line x1="880" y1="190" x2="914" y2="190" marker-end="url(#arr)"/>
+  </g>
+
+  <!-- Watcher loop -->
+  <path d="M 992 250 C 992 306, 144 306, 144 254" fill="none" stroke="#f472b6" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arr)"/>
+  <rect x="430" y="286" width="260" height="34" rx="8" fill="#111a2e" stroke="#f472b6"/>
+  <text x="560" y="308" fill="#f9a8d4" font-size="12.5" text-anchor="middle">file watcher → re-parse (fast) → keep scroll</text>
+
+  <!-- Memory budget row -->
+  <text x="56" y="368" fill="#e2e8f0" font-size="17" font-weight="700">Where the memory goes (and where it doesn't)</text>
+
+  <g>
+    <rect x="56" y="392" width="238" height="96" rx="10" fill="#111a2e" stroke="#24304d"/>
+    <text x="70" y="418" fill="#93c5fd" font-size="13" font-weight="700">Document text</text>
+    <text x="70" y="440" fill="#cbd5e1" font-size="11.5">mapped, zero copies (UTF-8 path)</text>
+    <text x="70" y="458" fill="#94a3b8" font-size="11.5">RSS ≈ pages you actually touched</text>
+    <text x="70" y="476" fill="#34d399" font-size="11.5">100 MB file ≈ no growth until scrolled</text>
+
+    <rect x="314" y="392" width="238" height="96" rx="10" fill="#111a2e" stroke="#24304d"/>
+    <text x="328" y="418" fill="#a5b4fc" font-size="13" font-weight="700">Block metadata</text>
+    <text x="328" y="440" fill="#cbd5e1" font-size="11.5">spans + style runs, no text</text>
+    <text x="328" y="458" fill="#94a3b8" font-size="11.5">~10-20% of doc size, allocated once</text>
+    <text x="328" y="476" fill="#34d399" font-size="11.5">200k blocks ≈ a few MB</text>
+
+    <rect x="572" y="392" width="238" height="96" rx="10" fill="#111a2e" stroke="#24304d"/>
+    <text x="586" y="418" fill="#6ee7b7" font-size="13" font-weight="700">Shaped buffers</text>
+    <text x="586" y="440" fill="#cbd5e1" font-size="11.5">LRU of 128 near-viewport blocks</text>
+    <text x="586" y="458" fill="#94a3b8" font-size="11.5">O(viewport), not O(document)</text>
+    <text x="586" y="476" fill="#34d399" font-size="11.5">resize/zoom = one cache clear</text>
+
+    <rect x="830" y="392" width="238" height="96" rx="10" fill="#111a2e" stroke="#24304d"/>
+    <text x="844" y="418" fill="#fcd34d" font-size="13" font-weight="700">Images + glyphs</text>
+    <text x="844" y="440" fill="#cbd5e1" font-size="11.5">decode off-thread, downscale</text>
+    <text x="844" y="458" fill="#94a3b8" font-size="11.5">bitmap LRU ≤ 128 MB, glyph atlas</text>
+    <text x="844" y="476" fill="#34d399" font-size="11.5">offscreen ⇒ evicted</text>
+  </g>
+
+  <text x="56" y="524" fill="#64748b" font-size="11.5">Search scans the mapping line-by-line with memchr/memmem — one lowercased line of scratch space, never a second copy of the document.</text>
+  <text x="56" y="556" fill="#94a3b8" font-size="12.5">Idle target ≈ 40-60 MB RSS · binary ~10 MB · reload = one streaming pass + targeted cache invalidation</text>
+</svg>
