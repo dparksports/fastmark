@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Application state and winit event handling.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
@@ -16,6 +17,7 @@ use notify::Watcher as _;
 
 use fastmark_core::{search, Document, Parsed, PositionIndex};
 
+use crate::browse::{visible_toc, FilesView, FolderSearch};
 use crate::images::{GpuImageSet, ImageStore};
 use crate::layout::{buffer_height, BlockEstimator, LayoutCtx, LayoutParams, LINE_H};
 use crate::render::{Quad, Renderer};
@@ -26,6 +28,23 @@ const MARGIN_X: f32 = 48.0;
 const TOC_W: f32 = 264.0;
 const SEARCH_H: f32 = 54.0;
 const CONTENT_MAX_W: f32 = 1040.0;
+
+/// Clickable row action, decided at render time.
+enum RowAction {
+    /// TOC entry jump; when `toggle_zone` > 0 the left zone folds instead.
+    TocJump(u32),
+    OpenFile(PathBuf),
+    FolderPick(usize),
+}
+
+struct RowHit {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    toggle_zone: f32,
+    action: RowAction,
+}
 
 pub struct DocState {
     pub path: PathBuf,
@@ -60,6 +79,7 @@ pub struct App {
     pub start_file: Option<PathBuf>,
     pub theme: Theme,
     pub toc_open: bool,
+    pub files_sidebar: bool,
 
     pub window: Option<Arc<Window>>,
     pub renderer: Option<Renderer>,
@@ -82,9 +102,19 @@ pub struct App {
     pub search: Option<SearchState>,
     pub modifiers: winit::keyboard::ModifiersState,
 
+    // Folder browsing + folder-wide search.
+    pub files_view: Option<FilesView>,
+    pub folder_search: Option<FolderSearch>,
+    folder_launched: String,
+    folder_gen: u64,
+
+    // TOC state: collapsed heading blocks + list scroll offset.
+    toc_collapsed: HashSet<u32>,
+    toc_scroll: usize,
+
     dragging_scrollbar: bool,
     pending_click: bool,
-    toc_hits: Vec<(f32, f32, f32, f32, u32)>, // x, y, w, h, block idx
+    row_hits: Vec<RowHit>,
 }
 
 impl App {
@@ -107,6 +137,7 @@ impl App {
             start_file,
             theme,
             toc_open: true,
+            files_sidebar: false,
             window: None,
             renderer: None,
             layout: None,
@@ -124,9 +155,15 @@ impl App {
             zoom: 1.0,
             search: None,
             modifiers: Default::default(),
+            files_view: None,
+            folder_search: None,
+            folder_launched: String::new(),
+            folder_gen: 0,
+            toc_collapsed: HashSet::new(),
+            toc_scroll: 0,
             dragging_scrollbar: false,
             pending_click: false,
-            toc_hits: Vec::new(),
+            row_hits: Vec::new(),
         }
     }
 
@@ -221,6 +258,9 @@ impl App {
             w.set_title(&format!("{t} — fastmark"));
         }
         self.install_watcher(&loaded.path);
+        if let Some(dir) = loaded.path.parent().map(|p| p.to_path_buf()) {
+            self.ensure_files_view(dir);
+        }
         self.loading.store(false, Ordering::Relaxed);
     }
 
@@ -262,36 +302,286 @@ impl App {
         let mut image_draws: Vec<(f32, f32, f32, f32, u32)> = Vec::new();
         let mut bufs: Vec<BufRef> = Vec::new();
         let mut areas_meta: Vec<(f32, f32, glyphon::Color)> = Vec::new();
+        self.row_hits.clear();
 
-        // No document: centered hint.
-        let Some(ds) = self.doc.as_mut() else {
-            let mut hint = layout.ui_buffer(
-                "Drop a Markdown file here  ·  or launch: fastmark <file>",
-                17.0 * scale,
+        // ------------------------------------------------------------------
+        // Mode dispatch (exclusive): folder search > file browser > document
+        // ------------------------------------------------------------------
+
+        // Folder-wide search results view.
+        if let Some(fs) = self.folder_search.as_mut() {
+            let bar_h = SEARCH_H * scale;
+            let row_h = 34.0 * scale;
+            let list_y = bar_h + 10.0 * scale;
+            let fit = ((vh - list_y - 44.0 * scale) / row_h).floor().max(3.0) as usize;
+            // Keep selection visible, then reborrow shared for rendering.
+            if fs.sel < fs.offset {
+                fs.offset = fs.sel;
+            } else if fs.sel >= fs.offset + fit {
+                fs.offset = fs.sel + 1 - fit;
+            }
+            let fs = &*fs;
+            quads.push(Quad::new(0.0, 0.0, vw, bar_h, theme.bg));
+            quads.push(Quad::new(0.0, bar_h - 1.0, vw, 1.0, theme.rule));
+            let status = if fs.done {
+                format!("{} hits", fs.results.len())
+            } else {
+                format!("{} hits · scanning…", fs.results.len())
+            };
+            let offset = fs.offset.min(fs.results.len());
+            let qbuf = layout.ui_buffer(
+                &format!("search folder: {}_", fs.query),
+                font_px,
+                theme.glyphon(theme.fg),
+            );
+            bufs.push(BufRef::Local(Mutex::new(qbuf)));
+            areas_meta.push((20.0 * scale, 14.0 * scale, theme.glyphon(theme.fg)));
+            let sbuf = layout.ui_buffer(&status, font_px * 0.9, theme.glyphon(theme.dim));
+            bufs.push(BufRef::Local(Mutex::new(sbuf)));
+            areas_meta.push((vw - 190.0 * scale, 16.0 * scale, theme.glyphon(theme.dim)));
+
+            let x0 = 24.0 * scale;
+            let col2 = 300.0 * scale;
+            for (vi, ri) in (offset..fs.results.len()).enumerate().take(fit) {
+                let hit = &fs.results[ri];
+                let y = list_y + vi as f32 * row_h;
+                let selected = ri == fs.sel;
+                if selected {
+                    quads.push(Quad::new(0.0, y, vw, row_h, theme.overlay_bg));
+                    quads.push(Quad::new(0.0, y, 3.0, row_h, theme.accent));
+                }
+                let name = hit
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let head = format!("{name}:{}", hit.line_no);
+                let hbuf = layout.ui_buffer(
+                    &head,
+                    font_px * 0.92,
+                    if selected {
+                        theme.glyphon(theme.fg)
+                    } else {
+                        theme.glyphon(theme.accent)
+                    },
+                );
+                bufs.push(BufRef::Local(Mutex::new(hbuf)));
+                areas_meta.push((x0, y + 7.0 * scale, theme.glyphon(theme.fg)));
+                let snippet: String = hit.snippet.chars().take(110).collect();
+                let sbuf2 = layout.ui_buffer(
+                    &snippet,
+                    font_px * 0.92,
+                    if selected {
+                        theme.glyphon(theme.fg)
+                    } else {
+                        theme.glyphon(theme.dim)
+                    },
+                );
+                bufs.push(BufRef::Local(Mutex::new(sbuf2)));
+                areas_meta.push((x0 + col2, y + 7.0 * scale, theme.glyphon(theme.dim)));
+                self.row_hits.push(RowHit {
+                    x: 0.0,
+                    y,
+                    w: vw,
+                    h: row_h,
+                    toggle_zone: 0.0,
+                    action: RowAction::FolderPick(ri),
+                });
+            }
+            let fbuf = layout.ui_buffer(
+                "Enter open · ↑↓ navigate · Esc close",
+                font_px * 0.85,
                 theme.glyphon(theme.faint),
             );
-            let areas = vec![glyphon::TextArea {
-                buffer: &mut hint,
-                left: (vw - 560.0 * scale).max(0.0) / 2.0 + 20.0 * scale,
-                top: vh / 2.0 - 12.0 * scale,
-                scale: 1.0,
-                bounds: glyphon::TextBounds::default(),
-                default_color: theme.glyphon(theme.fg),
-                custom_glyphs: &[],
-            }];
+            bufs.push(BufRef::Local(Mutex::new(fbuf)));
+            areas_meta.push((20.0 * scale, vh - 34.0 * scale, theme.glyphon(theme.faint)));
+
+            let mut guards: Vec<MutexGuard<'_, glyphon::Buffer>> = Vec::with_capacity(bufs.len());
+            for b in bufs.iter() {
+                match b {
+                    BufRef::Local(m) => guards.push(m.lock().unwrap()),
+                    BufRef::Shared(a) => guards.push(a.lock().unwrap()),
+                }
+            }
+            let areas: Vec<glyphon::TextArea> = guards
+                .iter_mut()
+                .zip(areas_meta.iter())
+                .map(|(g, &(left, top, color))| glyphon::TextArea {
+                    buffer: g,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: glyphon::TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: vw as i32,
+                        bottom: vh as i32,
+                    },
+                    default_color: color,
+                    custom_glyphs: &[],
+                })
+                .collect();
             renderer.draw(
                 &mut layout.font_system,
                 theme.clear(),
-                &[],
+                &quads,
                 &[],
                 &mut self.gpu_images,
                 areas,
             );
             return;
-        };
+        }
+
+        // File browser (no document open).
+        if self.doc.is_none() {
+            let Some(fv) = self.files_view.as_mut() else {
+                let mut hint = layout.ui_buffer(
+                    "Drop a Markdown file here  ·  or launch: fastmark <file>",
+                    17.0 * scale,
+                    theme.glyphon(theme.faint),
+                );
+                let areas = vec![glyphon::TextArea {
+                    buffer: &mut hint,
+                    left: (vw - 560.0 * scale).max(0.0) / 2.0 + 20.0 * scale,
+                    top: vh / 2.0 - 12.0 * scale,
+                    scale: 1.0,
+                    bounds: glyphon::TextBounds::default(),
+                    default_color: theme.glyphon(theme.fg),
+                    custom_glyphs: &[],
+                }];
+                renderer.draw(
+                    &mut layout.font_system,
+                    theme.clear(),
+                    &[],
+                    &[],
+                    &mut self.gpu_images,
+                    areas,
+                );
+                return;
+            };
+            let dir_name = fv
+                .dir
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| fv.dir.to_string_lossy().into_owned());
+            let filtered = fv.filtered();
+            let scanning = fv.scanning();
+            let filter = fv.filter.clone();
+            let sel = fv.sel;
+            let row_h = 34.0 * scale;
+            let list_y = 150.0 * scale;
+            let fit = ((vh - list_y - 50.0 * scale) / row_h).floor().max(3.0) as usize;
+            if sel < fv.offset {
+                fv.offset = sel;
+            } else if sel >= fv.offset + fit {
+                fv.offset = sel + 1 - fit;
+            }
+            let offset = fv.offset.min(filtered.len());
+            let x0 = 24.0 * scale;
+
+            let tbuf = layout.ui_buffer(
+                &format!("Markdown files — {dir_name}"),
+                font_px * 1.35,
+                theme.glyphon(theme.fg),
+            );
+            bufs.push(BufRef::Local(Mutex::new(tbuf)));
+            areas_meta.push((x0, 40.0 * scale, theme.glyphon(theme.fg)));
+            let status = if scanning {
+                format!("{} files · scanning…", filtered.len())
+            } else {
+                format!("{} files", filtered.len())
+            };
+            let stbuf = layout.ui_buffer(&status, font_px * 0.9, theme.glyphon(theme.dim));
+            bufs.push(BufRef::Local(Mutex::new(stbuf)));
+            areas_meta.push((x0, 78.0 * scale, theme.glyphon(theme.dim)));
+            if !filter.is_empty() {
+                let fbuf = layout.ui_buffer(
+                    &format!("filter: {filter}_"),
+                    font_px * 0.95,
+                    theme.glyphon(theme.accent),
+                );
+                bufs.push(BufRef::Local(Mutex::new(fbuf)));
+                areas_meta.push((x0, 108.0 * scale, theme.glyphon(theme.accent)));
+            }
+
+            for (vi, &ei) in filtered.iter().enumerate().skip(offset).take(fit) {
+                let entry = &fv.entries[ei];
+                let row_i = vi;
+                let y = list_y + (row_i - offset) as f32 * row_h;
+                let selected = row_i == sel;
+                if selected {
+                    quads.push(Quad::new(0.0, y, vw, row_h, theme.overlay_bg));
+                    quads.push(Quad::new(0.0, y, 3.0, row_h, theme.accent));
+                }
+                let nbuf = layout.ui_buffer(
+                    &entry.name,
+                    font_px,
+                    if selected {
+                        theme.glyphon(theme.fg)
+                    } else {
+                        theme.glyphon(theme.dim)
+                    },
+                );
+                bufs.push(BufRef::Local(Mutex::new(nbuf)));
+                areas_meta.push((x0 + 10.0 * scale, y + 7.0 * scale, theme.glyphon(theme.fg)));
+                self.row_hits.push(RowHit {
+                    x: 0.0,
+                    y,
+                    w: vw,
+                    h: row_h,
+                    toggle_zone: 0.0,
+                    action: RowAction::OpenFile(entry.path.clone()),
+                });
+            }
+            let fbuf = layout.ui_buffer(
+                "type to filter · ↑↓ select · Enter open · Ctrl+Shift+F search folder",
+                font_px * 0.85,
+                theme.glyphon(theme.faint),
+            );
+            bufs.push(BufRef::Local(Mutex::new(fbuf)));
+            areas_meta.push((x0, vh - 38.0 * scale, theme.glyphon(theme.faint)));
+
+            let mut guards: Vec<MutexGuard<'_, glyphon::Buffer>> = Vec::with_capacity(bufs.len());
+            for b in bufs.iter() {
+                match b {
+                    BufRef::Local(m) => guards.push(m.lock().unwrap()),
+                    BufRef::Shared(a) => guards.push(a.lock().unwrap()),
+                }
+            }
+            let areas: Vec<glyphon::TextArea> = guards
+                .iter_mut()
+                .zip(areas_meta.iter())
+                .map(|(g, &(left, top, color))| glyphon::TextArea {
+                    buffer: g,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: glyphon::TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: vw as i32,
+                        bottom: vh as i32,
+                    },
+                    default_color: color,
+                    custom_glyphs: &[],
+                })
+                .collect();
+            renderer.draw(
+                &mut layout.font_system,
+                theme.clear(),
+                &quads,
+                &[],
+                &mut self.gpu_images,
+                areas,
+            );
+            return;
+        }
 
         // Split DocState fields so the mutable position index and the
         // shared parse tree can be used in the same scope.
+        let Some(ds) = self.doc.as_mut() else {
+            return;
+        };
         let DocState {
             path: ds_path,
             doc: ds_doc,
@@ -461,49 +751,141 @@ impl App {
             }
         }
 
-        // TOC sidebar.
-        self.toc_hits.clear();
-        if self.toc_open {
+        // Sidebars: outline (synced, collapsible) or sibling files.
+        if let Some(fv) = self.files_view.as_ref().filter(|_| self.files_sidebar) {
             quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
-            let cur_block = {
-                let mut cur = None;
-                for e in &ds_parsed.toc {
-                    let y = index.offset_of(e.block as usize);
-                    if y <= scroll + 40.0 {
-                        cur = Some(e.block);
-                    } else {
-                        break;
-                    }
-                }
-                cur
-            };
-            let mut ty = 18.0 * scale;
+            let header = layout.ui_buffer("files", font_px * 0.85, theme.glyphon(theme.faint));
+            bufs.push(BufRef::Local(Mutex::new(header)));
+            areas_meta.push((20.0 * scale, 14.0 * scale, theme.glyphon(theme.faint)));
             let entry_h = 30.0 * scale;
-            for e in ds_parsed.toc.iter().take(400) {
-                if ty + entry_h > vh {
-                    break;
-                }
-                let indent = (e.level as f32 - 1.0) * 13.0 * scale + 20.0 * scale;
-                let is_cur = cur_block == Some(e.block);
+            let fit = ((vh - 44.0 * scale) / entry_h).floor() as usize;
+            let cur_path = ds_path.clone();
+            for (i, entry) in fv.entries.iter().enumerate().take(fit) {
+                let y = 40.0 * scale + i as f32 * entry_h;
+                let is_cur = entry.path == cur_path;
                 if is_cur {
                     quads.push(Quad::new(
                         0.0,
-                        ty - 5.0 * scale,
+                        y - 4.0 * scale,
                         toc_px,
                         entry_h,
                         theme.overlay_bg,
                     ));
-                    quads.push(Quad::new(0.0, ty - 5.0 * scale, 3.0, entry_h, theme.accent));
+                    quads.push(Quad::new(0.0, y - 4.0 * scale, 3.0, entry_h, theme.accent));
                 }
-                let label = if e.text.chars().count() > 34 {
-                    format!("{}…", e.text.chars().take(33).collect::<String>())
+                let nbuf = layout.ui_buffer(
+                    &entry.name,
+                    font_px * 0.84,
+                    if is_cur {
+                        theme.glyphon(theme.fg)
+                    } else {
+                        theme.glyphon(theme.dim)
+                    },
+                );
+                bufs.push(BufRef::Local(Mutex::new(nbuf)));
+                areas_meta.push((18.0 * scale, y, theme.glyphon(theme.fg)));
+                self.row_hits.push(RowHit {
+                    x: 0.0,
+                    y: y - 4.0 * scale,
+                    w: toc_px,
+                    h: entry_h,
+                    toggle_zone: 0.0,
+                    action: RowAction::OpenFile(entry.path.clone()),
+                });
+            }
+            if fv.entries.len() > fit {
+                let more = layout.ui_buffer(
+                    &format!("+{} more…", fv.entries.len() - fit),
+                    font_px * 0.8,
+                    theme.glyphon(theme.faint),
+                );
+                bufs.push(BufRef::Local(Mutex::new(more)));
+                areas_meta.push((18.0 * scale, vh - 30.0 * scale, theme.glyphon(theme.faint)));
+            }
+        } else if self.toc_open {
+            quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
+            // Active heading = last heading whose offset is above the
+            // viewport top (plus a small lead-in). This runs every frame,
+            // so the outline always tracks where the user is reading.
+            let active_full = {
+                let mut active = None;
+                for (i, e) in ds_parsed.toc.iter().enumerate() {
+                    let y = index.offset_of(e.block as usize);
+                    if y <= scroll + 40.0 {
+                        active = Some(i);
+                    } else {
+                        break;
+                    }
+                }
+                active
+            };
+            let visible = visible_toc(&ds_parsed.toc, &self.toc_collapsed);
+            // If the active heading is inside a collapsed branch, highlight
+            // its nearest visible ancestor instead.
+            let active_vis =
+                active_full.map(|a| visible.partition_point(|&v| v <= a).saturating_sub(1));
+            let entry_h = 30.0 * scale;
+            let fit = ((vh - 26.0 * scale) / entry_h).floor().max(1.0) as usize;
+            // Keep the active entry visible in the outline itself.
+            if let Some(av) = active_vis {
+                if av < self.toc_scroll {
+                    self.toc_scroll = av;
+                } else if av >= self.toc_scroll + fit {
+                    self.toc_scroll = av + 1 - fit;
+                }
+            }
+            let start = self.toc_scroll.min(visible.len());
+            for (vi, &ti) in visible.iter().enumerate().skip(start).take(fit) {
+                let e = &ds_parsed.toc[ti];
+                let y = 18.0 * scale + (vi - start) as f32 * entry_h;
+                let is_active = active_vis == Some(vi);
+                let indent = (e.level as f32 - 1.0) * 13.0 * scale + 34.0 * scale;
+                if is_active {
+                    quads.push(Quad::new(
+                        0.0,
+                        y - 5.0 * scale,
+                        toc_px,
+                        entry_h,
+                        theme.overlay_bg,
+                    ));
+                    quads.push(Quad::new(0.0, y - 5.0 * scale, 3.0, entry_h, theme.accent));
+                }
+                // Fold arrow when this heading has children.
+                let has_children = ds_parsed
+                    .toc
+                    .get(ti + 1)
+                    .is_some_and(|next| next.level > e.level);
+                let arrow = if !has_children {
+                    "  "
+                } else if self.toc_collapsed.contains(&e.block) {
+                    "\u{25b8}"
+                } else {
+                    "\u{25be}"
+                };
+                let abuf = layout.ui_buffer(
+                    arrow,
+                    font_px * 0.8,
+                    if has_children {
+                        theme.glyphon(theme.dim)
+                    } else {
+                        theme.glyphon(theme.faint)
+                    },
+                );
+                bufs.push(BufRef::Local(Mutex::new(abuf)));
+                areas_meta.push((
+                    indent - 22.0 * scale,
+                    y + 1.0 * scale,
+                    theme.glyphon(theme.dim),
+                ));
+                let label = if e.text.chars().count() > 30 {
+                    format!("{}…", e.text.chars().take(29).collect::<String>())
                 } else {
                     e.text.clone()
                 };
                 let buf = layout.ui_buffer(
                     &label,
                     font_px * if e.level <= 2 { 0.92 } else { 0.84 },
-                    if is_cur {
+                    if is_active {
                         theme.glyphon(theme.fg)
                     } else {
                         theme.glyphon(theme.dim)
@@ -512,16 +894,23 @@ impl App {
                 bufs.push(BufRef::Local(Mutex::new(buf)));
                 areas_meta.push((
                     indent,
-                    ty,
-                    if is_cur {
+                    y,
+                    if is_active {
                         theme.glyphon(theme.fg)
                     } else {
                         theme.glyphon(theme.dim)
                     },
                 ));
-                self.toc_hits
-                    .push((0.0, ty - 5.0 * scale, toc_px, entry_h, e.block));
-                ty += entry_h;
+                // One hit per row: the left `toggle_zone` pixels (up to the
+                // fold arrow) toggle the branch, the rest jumps.
+                self.row_hits.push(RowHit {
+                    x: 0.0,
+                    y: y - 5.0 * scale,
+                    w: toc_px,
+                    h: entry_h,
+                    toggle_zone: if has_children { indent } else { 0.0 },
+                    action: RowAction::TocJump(e.block),
+                });
             }
         }
 
@@ -687,6 +1076,122 @@ impl App {
                 .unwrap_or(0),
         )
     }
+
+    // ------------------------------------------------------------------
+    // Browsing helpers
+    // ------------------------------------------------------------------
+
+    fn redraw(&self) {
+        if let Some(w) = self.window.as_ref() {
+            w.request_redraw();
+        }
+    }
+
+    /// Make sure the file list targets `dir` (recreates the walker when the
+    /// document's folder changes).
+    fn ensure_files_view(&mut self, dir: PathBuf) {
+        let needs = self.files_view.as_ref().is_none_or(|f| f.dir != dir);
+        if needs {
+            self.files_view = Some(FilesView::new(dir));
+        }
+    }
+
+    /// Open a file at a byte offset: jumps in place when already open,
+    /// otherwise loads with an anchor.
+    fn open_at(&mut self, path: PathBuf, byte: Option<usize>) {
+        if let Some(ds) = self.doc.as_mut() {
+            if ds.path == path {
+                if let Some(b) = byte.and_then(|b| ds.parsed.block_at_byte(b)) {
+                    let y = ds.index.offset_of(b);
+                    let vh = self
+                        .window
+                        .as_ref()
+                        .map(|w| w.inner_size().height as f32)
+                        .unwrap_or(600.0);
+                    self.scroll_target = (y - vh * 0.25).max(0.0);
+                    self.scroll_cur = self.scroll_target;
+                }
+                self.redraw();
+                return;
+            }
+        }
+        self.request_load(path, byte);
+    }
+
+    /// Start (or restart) a folder-wide search over the current file list.
+    fn start_folder_search(&mut self, query: String) {
+        let dir = self
+            .doc
+            .as_ref()
+            .and_then(|d| d.path.parent().map(|p| p.to_path_buf()))
+            .or_else(|| self.files_view.as_ref().map(|f| f.dir.clone()))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        self.ensure_files_view(dir);
+        let files: Vec<PathBuf> = self
+            .files_view
+            .as_ref()
+            .map(|f| f.entries.iter().map(|e| e.path.clone()).collect())
+            .unwrap_or_default();
+        self.folder_gen += 1;
+        self.folder_launched = query.clone();
+        self.folder_search = Some(FolderSearch::start(files, query, self.folder_gen));
+        self.redraw();
+    }
+
+    fn dispatch_row(&mut self, action: &RowAction, in_toggle_zone: bool) {
+        match action {
+            RowAction::TocJump(block) => {
+                if in_toggle_zone {
+                    if self.toc_collapsed.contains(block) {
+                        self.toc_collapsed.remove(block);
+                    } else {
+                        self.toc_collapsed.insert(*block);
+                    }
+                } else if let Some(ds) = self.doc.as_mut() {
+                    self.scroll_target = ds.index.offset_of(*block as usize).max(0.0);
+                    self.scroll_cur = self.scroll_target;
+                }
+                self.redraw();
+            }
+            RowAction::OpenFile(path) => self.open_at(path.clone(), None),
+            RowAction::FolderPick(i) => {
+                if let Some((path, byte)) = self
+                    .folder_search
+                    .as_ref()
+                    .and_then(|fs| fs.results.get(*i))
+                    .map(|h| (h.path.clone(), h.byte))
+                {
+                    self.open_at(path, Some(byte));
+                }
+            }
+        }
+    }
+
+    /// Step the selection in whichever list view is active (browser or
+    /// folder search); returns true when consumed.
+    fn list_sel_step(&mut self, delta: i32) -> bool {
+        if let Some(fs) = self.folder_search.as_mut() {
+            if fs.results.is_empty() {
+                return true;
+            }
+            let max = fs.results.len() - 1;
+            fs.sel = (fs.sel as i32 + delta).clamp(0, max as i32) as usize;
+            self.redraw();
+            true
+        } else if self.doc.is_none() {
+            if let Some(fv) = self.files_view.as_mut() {
+                let len = fv.filtered().len();
+                if len == 0 {
+                    return true;
+                }
+                fv.sel = (fv.sel as i32 + delta).clamp(0, len as i32 - 1) as usize;
+                self.redraw();
+            }
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl ApplicationHandler for App {
@@ -704,6 +1209,9 @@ impl ApplicationHandler for App {
         self.renderer = Some(pollster::block_on(Renderer::new(window.clone())));
         if let Some(file) = self.start_file.take() {
             self.request_load(file, None);
+        } else {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            self.files_view = Some(FilesView::new(cwd));
         }
         window.request_redraw();
     }
@@ -746,6 +1254,19 @@ impl ApplicationHandler for App {
                 };
                 if self.modifiers.control_key() {
                     self.zoom_by(if dy > 0.0 { 1.1 } else { 1.0 / 1.1 });
+                } else if self.folder_search.is_some() || self.doc.is_none() {
+                    // List views: wheel steps the selection.
+                    let steps = if dy.abs() < 8.0 {
+                        0
+                    } else {
+                        (dy / (line_h.max(1.0) * 3.0)) as i32
+                    };
+                    let dir = if steps == 0 {
+                        -dy.signum() as i32
+                    } else {
+                        -steps
+                    };
+                    let _ = self.list_sel_step(dir);
                 } else {
                     self.scroll_by(dy);
                 }
@@ -776,31 +1297,22 @@ impl ApplicationHandler for App {
                     }
                 } else if self.pending_click {
                     self.pending_click = false;
-                    let scale = self
-                        .window
-                        .as_ref()
-                        .map(|w| w.scale_factor() as f32)
-                        .unwrap_or(1.0);
                     let vw = self
                         .window
                         .as_ref()
                         .map(|w| w.inner_size().width as f32)
                         .unwrap_or(0.0);
-                    if self.toc_open && x < TOC_W * scale {
-                        for &(_hx, hy, _hw, hh, block) in &self.toc_hits {
-                            if y >= hy && y <= hy + hh {
-                                if let Some(ds) = self.doc.as_mut() {
-                                    self.scroll_target =
-                                        ds.index.offset_of(block as usize).max(0.0);
-                                    self.scroll_cur = self.scroll_target;
-                                    if let Some(w) = self.window.as_ref() {
-                                        w.request_redraw();
-                                    }
-                                }
-                                break;
-                            }
+                    // Row hits first (content), scrollbar as the fallback.
+                    let mut handled = false;
+                    for hit in std::mem::take(&mut self.row_hits) {
+                        if x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h {
+                            self.dispatch_row(&hit.action, x < hit.x + hit.toggle_zone);
+                            handled = true;
+                            break;
                         }
-                    } else if x > vw - 16.0 {
+                    }
+                    // Any hits not consumed are stale; re-render refreshes them.
+                    if !handled && x > vw - 16.0 {
                         self.dragging_scrollbar = true;
                     }
                 }
@@ -810,21 +1322,52 @@ impl ApplicationHandler for App {
                     return;
                 }
                 let ctrl = self.modifiers.control_key();
+                let shift = self.modifiers.shift_key();
+                let folder_mode = self.folder_search.is_some();
+                let browser_mode = self.doc.is_none();
                 match event.logical_key {
                     Key::Named(NamedKey::Escape) => {
-                        if self.search.take().is_some() {
-                            if let Some(w) = self.window.as_ref() {
-                                w.request_redraw();
+                        if folder_mode {
+                            self.folder_search = None;
+                            self.redraw();
+                        } else if self.search.take().is_some() {
+                            self.redraw();
+                        } else if browser_mode
+                            && self
+                                .files_view
+                                .as_ref()
+                                .is_some_and(|f| !f.filter.is_empty())
+                        {
+                            if let Some(fv) = self.files_view.as_mut() {
+                                fv.filter.clear();
+                                fv.sel = 0;
+                                fv.offset = 0;
                             }
+                            self.redraw();
                         } else {
                             event_loop.exit();
                         }
                     }
                     Key::Named(NamedKey::F9) => {
                         self.toc_open = !self.toc_open;
-                        if let Some(w) = self.window.as_ref() {
-                            w.request_redraw();
+                        if self.toc_open {
+                            self.files_sidebar = false;
                         }
+                        self.redraw();
+                    }
+                    Key::Named(NamedKey::F10) => {
+                        self.files_sidebar = !self.files_sidebar;
+                        if self.files_sidebar {
+                            self.toc_open = false;
+                            if let Some(dir) = self
+                                .doc
+                                .as_ref()
+                                .and_then(|d| d.path.parent().map(|p| p.to_path_buf()))
+                            {
+                                self.ensure_files_view(dir);
+                            }
+                        }
+                        self.redraw();
                     }
                     Key::Named(NamedKey::F8) => {
                         self.theme = if self.theme.dark {
@@ -835,7 +1378,23 @@ impl ApplicationHandler for App {
                         self.apply_theme_change();
                     }
                     Key::Named(NamedKey::F3) | Key::Named(NamedKey::Enter) => {
-                        if let Some(s) = self.search.as_mut() {
+                        if folder_mode {
+                            if let Some(fs) = self.folder_search.as_ref() {
+                                if let Some(hit) = fs.results.get(fs.sel) {
+                                    let (path, byte) = (hit.path.clone(), hit.byte);
+                                    self.open_at(path, Some(byte));
+                                }
+                            }
+                        } else if browser_mode {
+                            let picked = self.files_view.as_ref().and_then(|fv| {
+                                fv.filtered()
+                                    .get(fv.sel)
+                                    .map(|&i| fv.entries[i].path.clone())
+                            });
+                            if let Some(path) = picked {
+                                self.open_at(path, None);
+                            }
+                        } else if let Some(s) = self.search.as_mut() {
                             if !s.hits.is_empty() {
                                 s.cur = (s.cur + 1) % s.hits.len();
                                 self.jump_to_hit();
@@ -843,49 +1402,83 @@ impl ApplicationHandler for App {
                         }
                     }
                     Key::Named(NamedKey::Backspace) => {
-                        if let Some(s) = self.search.as_mut() {
+                        if folder_mode {
+                            if let Some(fs) = self.folder_search.as_mut() {
+                                fs.query.pop();
+                                fs.edited = Instant::now();
+                                self.redraw();
+                            }
+                        } else if let Some(s) = self.search.as_mut() {
                             s.query.pop();
                             self.run_search();
                             self.jump_to_hit();
-                            if let Some(w) = self.window.as_ref() {
-                                w.request_redraw();
+                            self.redraw();
+                        } else if browser_mode {
+                            if let Some(fv) = self.files_view.as_mut() {
+                                fv.filter.pop();
+                                fv.sel = 0;
+                                fv.offset = 0;
+                                self.redraw();
                             }
                         }
                     }
-                    Key::Named(NamedKey::PageDown) => self.scroll_by(
-                        self.window
-                            .as_ref()
-                            .map(|w| w.inner_size().height as f32)
-                            .unwrap_or(600.0)
-                            * 0.9,
-                    ),
-                    Key::Named(NamedKey::PageUp) => self.scroll_by(
-                        -(self
-                            .window
-                            .as_ref()
-                            .map(|w| w.inner_size().height as f32)
-                            .unwrap_or(600.0)
-                            * 0.9),
-                    ),
-                    Key::Named(NamedKey::ArrowDown) => self.scroll_by(
-                        self.layout
-                            .as_ref()
-                            .map(|l| l.params().font_px * LINE_H)
-                            .unwrap_or(24.0)
-                            * 3.0,
-                    ),
-                    Key::Named(NamedKey::ArrowUp) => self.scroll_by(
-                        -(self
-                            .layout
-                            .as_ref()
-                            .map(|l| l.params().font_px * LINE_H)
-                            .unwrap_or(24.0)
-                            * 3.0),
-                    ),
+                    Key::Named(NamedKey::PageDown) if !folder_mode && !browser_mode => self
+                        .scroll_by(
+                            self.window
+                                .as_ref()
+                                .map(|w| w.inner_size().height as f32)
+                                .unwrap_or(600.0)
+                                * 0.9,
+                        ),
+                    Key::Named(NamedKey::PageUp) if !folder_mode && !browser_mode => self
+                        .scroll_by(
+                            -(self
+                                .window
+                                .as_ref()
+                                .map(|w| w.inner_size().height as f32)
+                                .unwrap_or(600.0)
+                                * 0.9),
+                        ),
+                    Key::Named(NamedKey::ArrowDown) => {
+                        if !self.list_sel_step(1) {
+                            self.scroll_by(
+                                self.layout
+                                    .as_ref()
+                                    .map(|l| l.params().font_px * LINE_H)
+                                    .unwrap_or(24.0)
+                                    * 3.0,
+                            );
+                        }
+                    }
+                    Key::Named(NamedKey::ArrowUp) => {
+                        if !self.list_sel_step(-1) {
+                            self.scroll_by(
+                                -(self
+                                    .layout
+                                    .as_ref()
+                                    .map(|l| l.params().font_px * LINE_H)
+                                    .unwrap_or(24.0)
+                                    * 3.0),
+                            );
+                        }
+                    }
+                    Key::Named(NamedKey::Home) if folder_mode || browser_mode => {
+                        if let Some(fs) = self.folder_search.as_mut() {
+                            fs.sel = 0;
+                        }
+                        if let Some(fv) = self.files_view.as_mut() {
+                            fv.sel = 0;
+                        }
+                        self.redraw();
+                    }
                     Key::Named(NamedKey::Home) => {
                         self.scroll_target = 0.0;
-                        if let Some(w) = self.window.as_ref() {
-                            w.request_redraw();
+                        self.redraw();
+                    }
+                    Key::Named(NamedKey::End) if folder_mode => {
+                        if let Some(fs) = self.folder_search.as_mut() {
+                            fs.sel = fs.results.len().saturating_sub(1);
+                            self.redraw();
                         }
                     }
                     Key::Named(NamedKey::End) => {
@@ -897,17 +1490,28 @@ impl ApplicationHandler for App {
                                 .unwrap_or(600.0);
                             self.scroll_target = (ds.index.total() - vh).max(0.0);
                         }
-                        if let Some(w) = self.window.as_ref() {
-                            w.request_redraw();
-                        }
+                        self.redraw();
                     }
-                    Key::Named(NamedKey::Space) if self.search.is_none() => self.scroll_by(
-                        self.window
+                    Key::Named(NamedKey::Space)
+                        if !folder_mode && !browser_mode && self.search.is_none() =>
+                    {
+                        self.scroll_by(
+                            self.window
+                                .as_ref()
+                                .map(|w| w.inner_size().height as f32)
+                                .unwrap_or(600.0)
+                                * 0.85,
+                        )
+                    }
+                    // Folder-wide keyword search across every file.
+                    Key::Character(ref c) if ctrl && shift && (c == "f" || c == "F") => {
+                        let query = self
+                            .folder_search
                             .as_ref()
-                            .map(|w| w.inner_size().height as f32)
-                            .unwrap_or(600.0)
-                            * 0.85,
-                    ),
+                            .map(|fs| fs.query.clone())
+                            .unwrap_or_default();
+                        self.start_folder_search(query);
+                    }
                     Key::Character(ref c) if ctrl && (c == "f" || c == "F") => {
                         self.search = Some(SearchState {
                             query: String::new(),
@@ -915,15 +1519,25 @@ impl ApplicationHandler for App {
                             cur: 0,
                             truncated: false,
                         });
-                        if let Some(w) = self.window.as_ref() {
-                            w.request_redraw();
-                        }
+                        self.redraw();
                     }
                     Key::Character(ref c) if ctrl && (c == "=" || c == "+") => self.zoom_by(1.15),
                     Key::Character(ref c) if ctrl && c == "-" => self.zoom_by(1.0 / 1.15),
                     Key::Character(ref c) if ctrl && c == "0" => {
                         self.zoom = 1.0;
                         self.zoom_by(1.0);
+                    }
+                    // Free typing routes to whichever input is active.
+                    Key::Character(ref c) if !ctrl && folder_mode => {
+                        if let Some(ch) = c.chars().next() {
+                            if !ch.is_control() {
+                                if let Some(fs) = self.folder_search.as_mut() {
+                                    fs.query.push(ch);
+                                    fs.edited = Instant::now();
+                                    self.redraw();
+                                }
+                            }
+                        }
                     }
                     Key::Character(ref c) if !ctrl && self.search.is_some() => {
                         if let Some(s) = self.search.as_mut() {
@@ -932,9 +1546,19 @@ impl ApplicationHandler for App {
                                     s.query.push(ch);
                                     self.run_search();
                                     self.jump_to_hit();
-                                    if let Some(w) = self.window.as_ref() {
-                                        w.request_redraw();
-                                    }
+                                    self.redraw();
+                                }
+                            }
+                        }
+                    }
+                    Key::Character(ref c) if !ctrl && browser_mode => {
+                        if let Some(ch) = c.chars().next() {
+                            if !ch.is_control() {
+                                if let Some(fv) = self.files_view.as_mut() {
+                                    fv.filter.push(ch);
+                                    fv.sel = 0;
+                                    fv.offset = 0;
+                                    self.redraw();
                                 }
                             }
                         }
@@ -957,8 +1581,22 @@ impl ApplicationHandler for App {
             loaded_any = true;
         }
         if loaded_any {
-            if let Some(w) = self.window.as_ref() {
-                w.request_redraw();
+            self.redraw();
+        }
+
+        // File-list walker results.
+        if self.files_view.as_mut().is_some_and(|fv| fv.poll()) {
+            self.redraw();
+        }
+
+        // Folder search: progressive results + debounced re-scan on typing.
+        if self.folder_search.as_mut().is_some_and(|fs| fs.poll()) {
+            self.redraw();
+        }
+        if let Some(fs) = self.folder_search.as_ref() {
+            if fs.edited.elapsed().as_millis() > 220 && fs.query != self.folder_launched {
+                let q = fs.query.clone();
+                self.start_folder_search(q);
             }
         }
 

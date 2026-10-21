@@ -13,6 +13,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod browse;
 mod images;
 mod layout;
 mod render;

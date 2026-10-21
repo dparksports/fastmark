@@ -48,27 +48,43 @@ You can also just **drop any `.md` file onto the window**.
 
 ## Features
 
+- **File browser home** — launch without arguments and fastmark lists every
+  Markdown file in the working folder (recursive, background-scanned). Type
+  to filter, `↑↓` select, `Enter` or click to open — or drop any `.md` file
+  onto the window.
+- **Folder-wide keyword search** — `Ctrl+Shift+F` searches every word in
+  every file of the folder (mmap'd one at a time, streamed results with
+  file:line and snippet). `Enter` jumps straight to the hit.
+- **Synced, collapsible outline** — the TOC tracks what you're reading and
+  auto-scrolls to keep the active heading visible; click a heading's ▸/▾ to
+  fold or unfold any branch. `F10` swaps the outline for a sibling-file
+  sidebar for quick hopping between documents.
 - Headings, paragraphs, **emphasis**, `inline code`, links, strikethrough
 - Fenced/indented code blocks, block quotes, nested & task lists, rules
 - GFM tables (rendered as aligned monospace grids)
 - Block images (PNG/JPEG/GIF/WebP/BMP) with caption + placeholder frame
-- Outline (TOC) sidebar with current-heading tracking — `F9`
-- Incremental find with hit counter — `Ctrl+F`, `Enter`/`F3` next, `Esc` close
+- Incremental in-document find — `Ctrl+F`, `Enter`/`F3` next, `Esc` close
 - Live reload on file change, keeping your scroll position
 - Dark/light theme following the Windows personalization setting — `F8`
-- Smooth scrolling, per-monitor DPI awareness, dark title bar
+- Smooth scrolling, per-monitor DPI awareness, dark title bar, no console
+  window (GUI subsystem with console re-attach for CLI modes)
 - Zoom: `Ctrl+wheel`, `Ctrl+=`, `Ctrl+-`, `Ctrl+0`
 
 ## Keyboard shortcuts
 
 | Key | Action |
 |---|---|
-| `wheel`, `PgUp`/`PgDn`, arrows, `Space`, `Home`/`End` | scroll |
-| `Ctrl+wheel`, `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | zoom in / out / reset |
-| `Ctrl+F` | find (type to search, `Enter`/`F3` next hit, `Backspace` edit, `Esc` close) |
-| `F9` | toggle outline sidebar |
+| typing / `Backspace` | filter the file list (browser) or edit the search query |
+| `↑↓` / wheel | move selection (lists) or scroll (document) |
+| `Enter` / click | open selected file / jump to search hit |
+| `PgUp`/`PgDn`, `Space`, `Home`/`End` | scroll the document |
+| `Ctrl+Shift+F` | search every word across the folder |
+| `Ctrl+F` | find within the open document (`Enter`/`F3` next, `Esc` close) |
+| `F9` | outline sidebar (synced, collapsible branches) |
+| `F10` | sibling-files sidebar |
+| `Ctrl+wheel`, `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | zoom |
 | `F8` | toggle dark/light theme |
-| `Esc` | close find, otherwise quit |
+| `Esc` | close search / clear filter / quit |
 
 ## Virtualized scrolling
 
@@ -140,7 +156,11 @@ samples/             demo + bench documents
   (planned: lazy syntect per visible block).
 - Links are styled but not clickable in-document; local images only (no
   network fetches, by design).
-- TOC sidebar shows the first 400 entries without scrolling.
+- Folder search is keyword-based (case-insensitive substring, ASCII fold);
+  true semantic search (embedding models) is a roadmap item — the scan
+  architecture is ready for a scorer hook.
+- The sibling-files sidebar lists the first screenful of files; the browser
+  home supports full filtering and scrolling.
 - Search highlight is block-level (accent bar); glyph-precise highlight is
   planned via cosmic-text cursor APIs.
 
