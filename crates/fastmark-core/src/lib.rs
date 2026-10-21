@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! mdview-core: the platform-independent document pipeline.
+//! fastmark-core: the platform-independent document pipeline.
 //!
 //! Design goals, in priority order:
 //! 1. Memory proportional to what the user is looking at, not to the file.

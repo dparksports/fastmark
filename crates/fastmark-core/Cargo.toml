@@ -1,5 +1,5 @@
 [package]
-name = "mdview-core"
+name = "fastmark-core"
 description = "Memory-efficient Markdown document pipeline: mmap loading, encoding detection, streaming parse to a flat block model, and search"
 version.workspace = true
 edition.workspace = true

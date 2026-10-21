@@ -1,19 +1,19 @@
 [package]
-name = "mdview-app"
-description = "mdview - a fast, memory-efficient native Markdown viewer (Windows-first, cross-platform core)"
+name = "fastmark-app"
+description = "fastmark - a fast, memory-efficient native Markdown viewer (Windows-first, cross-platform core)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-default-run = "mdview"
+default-run = "fastmark"
 
 [[bin]]
-name = "mdview"
+name = "fastmark"
 path = "src/main.rs"
 
 [dependencies]
-mdview-core = { path = "../mdview-core" }
+fastmark-core = { path = "../fastmark-core" }
 winit = "0.30"
 wgpu = "25"
 glyphon = "0.9"

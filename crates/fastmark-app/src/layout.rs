@@ -7,8 +7,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use cosmic_text::LineEnding;
+use fastmark_core::{Block, Document, HeightEstimator, Line, Parsed, Style as MvStyle};
 use glyphon::{Attrs, AttrsList, BufferLine, Family, Metrics, Shaping, Style, Weight};
-use mdview_core::{Block, Document, HeightEstimator, Line, Parsed, Style as MvStyle};
 
 use crate::theme::Theme;
 
@@ -107,11 +107,11 @@ pub fn build_block_buffer(
                 for piece in &line.pieces {
                     let start = text.len();
                     let s = match &piece.text {
-                        mdview_core::PieceText::Source { start: s0, end } => {
+                        fastmark_core::PieceText::Source { start: s0, end } => {
                             doc.slice_str((*s0 as usize)..(*end as usize))
                         }
-                        mdview_core::PieceText::Synth(s) => *s,
-                        mdview_core::PieceText::Owned(s) => s,
+                        fastmark_core::PieceText::Synth(s) => *s,
+                        fastmark_core::PieceText::Owned(s) => s,
                     };
                     text.push_str(s);
                     let attrs = if mono_mode {
@@ -165,15 +165,15 @@ pub fn build_block_buffer(
                     }
                     let w = widths.get(c).copied().unwrap_or(0);
                     let cw = unicode_width::UnicodeWidthStr::width(cell.as_str());
-                    let (lpad, rpad) = match aligns.get(c).unwrap_or(&mdview_core::TableAlign::None)
-                    {
-                        mdview_core::TableAlign::Right => (w.saturating_sub(cw), 0),
-                        mdview_core::TableAlign::Center => {
-                            let p = w.saturating_sub(cw);
-                            (p / 2 + p % 2, p / 2)
-                        }
-                        _ => (0, w.saturating_sub(cw)),
-                    };
+                    let (lpad, rpad) =
+                        match aligns.get(c).unwrap_or(&fastmark_core::TableAlign::None) {
+                            fastmark_core::TableAlign::Right => (w.saturating_sub(cw), 0),
+                            fastmark_core::TableAlign::Center => {
+                                let p = w.saturating_sub(cw);
+                                (p / 2 + p % 2, p / 2)
+                            }
+                            _ => (0, w.saturating_sub(cw)),
+                        };
                     for _ in 0..lpad {
                         text.push(' ');
                     }
@@ -341,7 +341,7 @@ impl LayoutCtx {
 }
 
 // ---------------------------------------------------------------------------
-// Height estimation (see mdview_core::PositionIndex)
+// Height estimation (see fastmark_core::PositionIndex)
 // ---------------------------------------------------------------------------
 
 pub struct BlockEstimator<'a> {

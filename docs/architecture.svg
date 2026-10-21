@@ -12,7 +12,7 @@
   </defs>
 
   <rect width="1120" height="600" fill="#0b1220"/>
-  <text x="56" y="52" fill="#e2e8f0" font-size="26" font-weight="700">mdview — how a document becomes pixels</text>
+  <text x="56" y="52" fill="#e2e8f0" font-size="26" font-weight="700">fastmark — how a document becomes pixels</text>
   <text x="56" y="76" fill="#94a3b8" font-size="14">A streaming pipeline: every stage holds only what it needs. Nothing ever materializes the whole document as rich text.</text>
   <rect x="56" y="90" width="1008" height="4" rx="2" fill="url(#hdr)"/>
 

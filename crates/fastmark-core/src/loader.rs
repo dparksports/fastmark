@@ -208,7 +208,7 @@ mod tests {
     use super::*;
 
     fn tmp(name: &str, bytes: &[u8]) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("mdview-test-{name}"));
+        let p = std::env::temp_dir().join(format!("fastmark-test-{name}"));
         std::fs::write(&p, bytes).unwrap();
         p
     }

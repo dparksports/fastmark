@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-//! mdview - a fast, memory-efficient Markdown viewer.
+//! fastmark - a fast, memory-efficient Markdown viewer.
 //!
 //! Native pipeline: mmap -> streaming pull parse -> flat block model ->
 //! virtualized layout (cosmic-text) -> wgpu rendering. See docs/ for the
@@ -19,10 +19,10 @@ use theme::ViewTheme;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const HELP: &str = "\
-mdview - a fast, memory-efficient Markdown viewer
+fastmark - a fast, memory-efficient Markdown viewer
 
 USAGE:
-    mdview [OPTIONS] [FILE]
+    fastmark [OPTIONS] [FILE]
 
 ARGS:
     <FILE>    Markdown file to open (you can also drop a file onto the window)
@@ -57,7 +57,7 @@ fn main() {
                 return;
             }
             "-V" | "--version" => {
-                println!("mdview {VERSION}");
+                println!("fastmark {VERSION}");
                 return;
             }
             "--light" => view = ViewTheme::Light,
@@ -93,10 +93,10 @@ fn main() {
 
 fn run_bench(path: &std::path::Path) {
     let t0 = Instant::now();
-    let doc = match mdview_core::Document::load(path) {
+    let doc = match fastmark_core::Document::load(path) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("mdview: cannot load {}: {e}", path.display());
+            eprintln!("fastmark: cannot load {}: {e}", path.display());
             std::process::exit(1);
         }
     };
@@ -106,12 +106,12 @@ fn run_bench(path: &std::path::Path) {
     let text = match doc.text() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("mdview: {e}");
+            eprintln!("fastmark: {e}");
             std::process::exit(1);
         }
     };
     let bytes = text.len();
-    let parsed = mdview_core::parse(text);
+    let parsed = fastmark_core::parse(text);
     let t_parse = t1.elapsed();
 
     // Full layout, headless: shape every block the way the viewport would.
@@ -158,7 +158,7 @@ fn run_bench(path: &std::path::Path) {
     let t_layout = t4.elapsed();
 
     let peak = theme::platform::peak_rss().unwrap_or(0);
-    println!("mdview bench: {}", path.display());
+    println!("fastmark bench: {}", path.display());
     println!("  encoding       : {}", doc.encoding);
     println!(
         "  document       : {:.1} MB ({} bytes)",
@@ -199,7 +199,7 @@ Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium dolor
             "\n\n- first item with `inline code`\n- second item\n  - nested item\n- [x] done\n\n",
         );
         out.push_str(&format!("> A quoted line for section {section}.\n\n"));
-        out.push_str("```rust\nfn main() {\n    println!(\"hello, mdview\");\n}\n```\n\n");
+        out.push_str("```rust\nfn main() {\n    println!(\"hello, fastmark\");\n}\n```\n\n");
         out.push_str("| a | b | c |\n|---|:-:|--:|\n| 1 | 2 | 3 |\n| x | y | z |\n\n");
         out.push_str(para);
         out.push_str("\n\n");

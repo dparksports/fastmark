@@ -3,7 +3,7 @@
 //! and cap resident decoded bitmaps with an LRU budget.
 //!
 //! A naive viewer turns one 4000x3000 photo into 48 MB of resident RGBA.
-//! mdview decodes on a worker thread, resamples to at most ~2x the display
+//! fastmark decodes on a worker thread, resamples to at most ~2x the display
 //! width before it ever touches GPU memory, and evicts least-recently-shown
 //! images when the budget (128 MB by default) is exceeded.
 

@@ -14,7 +14,7 @@
 
   <rect width="1120" height="600" fill="#0b1220"/>
   <text x="56" y="52" fill="#e2e8f0" font-size="26" font-weight="700">Virtualized layout — render only what the eye sees</text>
-  <text x="56" y="76" fill="#94a3b8" font-size="14">A 100 MB document has ~100k blocks. mdview shapes a screenful; everything else is a cheap height estimate until you scroll there.</text>
+  <text x="56" y="76" fill="#94a3b8" font-size="14">A 100 MB document has ~100k blocks. fastmark shapes a screenful; everything else is a cheap height estimate until you scroll there.</text>
   <rect x="56" y="90" width="1008" height="4" rx="2" fill="url(#hdr3)"/>
 
   <!-- Document column -->

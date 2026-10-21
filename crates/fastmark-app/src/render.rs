@@ -194,7 +194,7 @@ impl Renderer {
             .expect("request adapter");
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                label: Some("mdview-device"),
+                label: Some("fastmark-device"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::downlevel_defaults()
                     .using_resolution(adapter.limits()),
@@ -467,7 +467,7 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("mdview-image"),
+            label: Some("fastmark-image"),
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -623,11 +623,11 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("mdview"),
+                label: Some("fastmark"),
             });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("mdview-pass"),
+                label: Some("fastmark-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,

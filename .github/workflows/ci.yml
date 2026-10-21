@@ -50,18 +50,18 @@ jobs:
       - run: cargo build --release
       - name: Generate synthetic 25 MB document
         shell: bash
-        run: ./target/release/mdview.exe --bench-gen 25600 > bench-25mb.md
+        run: ./target/release/fastmark.exe --bench-gen 25600 > bench-25mb.md
       - name: Bench 25 MB document
         shell: bash
-        run: ./target/release/mdview.exe --bench bench-25mb.md
+        run: ./target/release/fastmark.exe --bench bench-25mb.md
       - name: Bench demo document
         shell: bash
-        run: ./target/release/mdview.exe --bench samples/demo.md
+        run: ./target/release/fastmark.exe --bench samples/demo.md
       - uses: actions/upload-artifact@v4
         with:
-          name: mdview-windows-x64
+          name: fastmark-windows-x64
           path: |
-            target/release/mdview.exe
+            target/release/fastmark.exe
             samples/demo.md
 
   release:
@@ -79,10 +79,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp target/release/mdview.exe dist/
+          cp target/release/fastmark.exe dist/
           cp -r samples dist/
           cp README.md LICENSE dist/
-          cd dist && 7z a ../mdview-windows-x64.zip . && cd ..
+          cd dist && 7z a ../fastmark-windows-x64.zip . && cd ..
       - uses: softprops/action-gh-release@v2
         with:
-          files: mdview-windows-x64.zip
+          files: fastmark-windows-x64.zip

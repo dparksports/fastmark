@@ -14,7 +14,7 @@ use winit::window::{Window, WindowId};
 
 use notify::Watcher as _;
 
-use mdview_core::{search, Document, Parsed, PositionIndex};
+use fastmark_core::{search, Document, Parsed, PositionIndex};
 
 use crate::images::{GpuImageSet, ImageStore};
 use crate::layout::{buffer_height, BlockEstimator, LayoutCtx, LayoutParams, LINE_H};
@@ -142,7 +142,7 @@ impl App {
             let result = (|| -> Option<Loaded> {
                 let doc = Document::load(&path).ok()?;
                 let text = doc.text().ok()?;
-                let parsed = mdview_core::parse(text);
+                let parsed = fastmark_core::parse(text);
                 Some(Loaded {
                     path: path.clone(),
                     doc: Arc::new(doc),
@@ -218,7 +218,7 @@ impl App {
                 .as_ref()
                 .map(|d| d.title.clone())
                 .unwrap_or_default();
-            w.set_title(&format!("{t} — mdview"));
+            w.set_title(&format!("{t} — fastmark"));
         }
         self.install_watcher(&loaded.path);
         self.loading.store(false, Ordering::Relaxed);
@@ -266,7 +266,7 @@ impl App {
         // No document: centered hint.
         let Some(ds) = self.doc.as_mut() else {
             let mut hint = layout.ui_buffer(
-                "Drop a Markdown file here  ·  or launch: mdview <file>",
+                "Drop a Markdown file here  ·  or launch: fastmark <file>",
                 17.0 * scale,
                 theme.glyphon(theme.faint),
             );
@@ -338,7 +338,7 @@ impl App {
             let block = &blocks[i];
             let idx = i as u32;
             match block {
-                mdview_core::Block::Rule => {
+                fastmark_core::Block::Rule => {
                     let (y0, h) = index.block_pos(i);
                     quads.push(Quad::new(
                         content_x,
@@ -348,7 +348,7 @@ impl App {
                         theme.rule,
                     ));
                 }
-                mdview_core::Block::Image { url, alt } => {
+                fastmark_core::Block::Image { url, alt } => {
                     let base_dir = ds_path
                         .parent()
                         .map(|p| p.to_path_buf())
@@ -385,7 +385,7 @@ impl App {
                     }
                     let _ = alt;
                 }
-                mdview_core::Block::Code { .. } | mdview_core::Block::Html { .. } => {
+                fastmark_core::Block::Code { .. } | fastmark_core::Block::Html { .. } => {
                     let arc = layout.get_or_build(idx, ds_doc, ds_parsed, &theme);
                     let h = buffer_height(&arc.lock().unwrap());
                     quads.push(Quad::new(
@@ -399,7 +399,7 @@ impl App {
                     areas_meta.push((content_x, y - scroll + 8.0, theme.glyphon(theme.fg)));
                     index.set_measured(i, h + 16.0);
                 }
-                mdview_core::Block::Table { .. } => {
+                fastmark_core::Block::Table { .. } => {
                     let arc = layout.get_or_build(idx, ds_doc, ds_parsed, &theme);
                     let h = buffer_height(&arc.lock().unwrap());
                     quads.push(Quad::new(
@@ -413,7 +413,7 @@ impl App {
                     areas_meta.push((content_x, y - scroll + 8.0, theme.glyphon(theme.fg)));
                     index.set_measured(i, h + 16.0);
                 }
-                mdview_core::Block::Quote { depth, .. } => {
+                fastmark_core::Block::Quote { depth, .. } => {
                     let arc = layout.get_or_build(idx, ds_doc, ds_parsed, &theme);
                     let h = buffer_height(&arc.lock().unwrap());
                     let indent = *depth as f32 * 22.0 * scale;
@@ -428,7 +428,7 @@ impl App {
                     areas_meta.push((content_x + indent, y - scroll, theme.glyphon(theme.fg)));
                     index.set_measured(i, h);
                 }
-                mdview_core::Block::ListItem { depth, .. } => {
+                fastmark_core::Block::ListItem { depth, .. } => {
                     let arc = layout.get_or_build(idx, ds_doc, ds_parsed, &theme);
                     let h = buffer_height(&arc.lock().unwrap());
                     let indent = *depth as f32 * 26.0 * scale;
@@ -695,7 +695,7 @@ impl ApplicationHandler for App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("mdview")
+            .with_title("fastmark")
             .with_inner_size(winit::dpi::LogicalSize::new(1180.0, 780.0))
             .with_min_inner_size(winit::dpi::LogicalSize::new(560.0, 400.0));
         let window = Arc::new(event_loop.create_window(attrs).expect("create window"));

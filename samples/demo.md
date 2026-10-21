@@ -1,4 +1,4 @@
-# mdview demo
+# fastmark demo
 
 A Markdown file exercising the viewer: **bold**, *italic*, `inline code`,
 ~~strikethrough~~, [links](https://commonmark.org), and unicode — naïve café 中文 🦀.
@@ -6,7 +6,7 @@ A Markdown file exercising the viewer: **bold**, *italic*, `inline code`,
 ## Text
 
 Markdown is a lightweight markup language with plain-text formatting syntax.
-mdview renders it with a streaming parser into a flat block model, lays out
+fastmark renders it with a streaming parser into a flat block model, lays out
 only what is visible, and keeps the source memory-mapped, so even very large
 documents scroll smoothly and stay small in RAM.
 
@@ -18,7 +18,7 @@ forces a new line.
 
 ```rust
 fn main() {
-    let blocks = mdview_core::parse("# hello");
+    let blocks = fastmark_core::parse("# hello");
     println!("{} blocks", blocks.blocks.len());
 }
 ```
@@ -46,7 +46,7 @@ Indent code works too:
 
 ## Tables
 
-| Feature | Electron | mdview |
+| Feature | Electron | fastmark |
 |---------|:--------:|-------:|
 | Idle RAM | ~300 MB | ~50 MB |
 | Binary  | ~100 MB | ~10 MB |
@@ -58,7 +58,7 @@ Indent code works too:
 
 Rule above. Images decode off-thread and downscale to display size:
 
-![mdview logo placeholder](logo.png)
+![fastmark logo placeholder](logo.png)
 
 *Inline image note:* if the file is missing you will see a placeholder
 frame instead — never a crash.

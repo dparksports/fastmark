@@ -1,12 +1,12 @@
-# mdview
+# fastmark
 
 **A fast, memory-efficient, native Markdown viewer for Windows (macOS/Linux core ready).**
 
-[![CI](https://github.com/dparksports/mdview/actions/workflows/ci.yml/badge.svg)](https://github.com/dparksports/mdview/actions/workflows/ci.yml)
+[![CI](https://github.com/dparksports/fastmark/actions/workflows/ci.yml/badge.svg)](https://github.com/dparksports/fastmark/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-9ca3af)
 
-mdview renders Markdown the way editors render code: a **streaming pipeline**
+fastmark renders Markdown the way editors render code: a **streaming pipeline**
 that never materializes the document as a rich-text tree. The file stays
 memory-mapped, the parser produces a flat list of blocks addressed by *byte
 ranges*, and only the blocks near your viewport are ever laid out. The result
@@ -14,8 +14,8 @@ opens 100 MB documents instantly, idles around **40–60 MB of RAM**, and keeps
 scrolling at display refresh rate no matter where you are in the file.
 
 ```text
-mdview README.md        # view a file
-mdview --bench big.md   # headless benchmark: load, parse, shape every block
+fastmark README.md        # view a file
+fastmark --bench big.md   # headless benchmark: load, parse, shape every block
 ```
 
 You can also just **drop any `.md` file onto the window**.
@@ -83,10 +83,10 @@ scrollbar reflects running estimates and settles as you explore.
 ## Building
 
 ```bash
-git clone https://github.com/dparksports/mdview
-cd mdview
+git clone https://github.com/dparksports/fastmark
+cd fastmark
 cargo build --release
-# Windows: target\release\mdview.exe
+# Windows: target\release\fastmark.exe
 ```
 
 Requires a stable Rust toolchain (1.82+). On Linux, install the usual
@@ -96,16 +96,16 @@ libxcb1-dev libxrandr-dev libxi-dev libxcursor-dev`).
 ### Benchmarking
 
 ```bash
-mdview --bench-gen 102400 > big.md   # synthesize a 100 MB markdown file
-mdview --bench big.md                 # load / parse / layout timings + RSS
+fastmark --bench-gen 102400 > big.md   # synthesize a 100 MB markdown file
+fastmark --bench big.md                 # load / parse / layout timings + RSS
 ```
 
 The **CI bench job** runs this on every push against a synthetic 25 MB
-document — check the latest [CI runs](https://github.com/dparksports/mdview/actions)
+document — check the latest [CI runs](https://github.com/dparksports/fastmark/actions)
 for live numbers.
 
 Measured on CI (windows-latest runner, release build, headless `--bench`
-mode, [run 39549333608](https://github.com/dparksports/mdview/actions/runs/39549333608)):
+mode, [run 39549333608](https://github.com/dparksports/fastmark/actions/runs/39549333608)):
 
 | Document | Blocks | Load (mmap) | Parse | First screen¹ | Full layout (stress¹) |
 |---|---|---|---|---|---|
@@ -123,10 +123,10 @@ the flat line in the chart above. One-time font scan on a cold runner: ~1.7 s
 ## Project layout
 
 ```
-crates/mdview-core   platform-independent pipeline: mmap loader, encoding
+crates/fastmark-core   platform-independent pipeline: mmap loader, encoding
                      detection, streaming parser, block model, search,
                      position index (fully unit-tested, no GPU deps)
-crates/mdview-app    winit + wgpu + glyphon viewer: virtualized layout,
+crates/fastmark-app    winit + wgpu + glyphon viewer: virtualized layout,
                      image store, file watching, TOC, find, themes
 docs/                architecture infographics (SVG)
 samples/             demo + bench documents
