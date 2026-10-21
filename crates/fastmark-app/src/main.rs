@@ -5,6 +5,13 @@
 //! virtualized layout (cosmic-text) -> wgpu rendering. See docs/ for the
 //! architecture diagrams.
 
+// GUI subsystem: launching fastmark never spawns a console window. Debug
+// builds keep the console for `cargo run` logs. CLI modes re-attach the
+// parent console in `main` so --help/--version/--bench still print when
+// invoked from a terminal (and inherit piped stdio under shells like Git
+// Bash regardless).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod images;
 mod layout;
@@ -42,7 +49,35 @@ KEYS:
     F9 outline sidebar    F8 theme toggle    Esc quit
 ";
 
+/// With the `windows` subsystem the process starts without stdio. When a
+/// CLI mode is used from a real console (cmd/PowerShell/Windows Terminal),
+/// re-attach to the parent's console so println output lands there. Under
+/// piped stdio (Git Bash, CI) the inherited handles already work and this
+/// call simply fails harmlessly.
+#[cfg(all(windows, not(debug_assertions)))]
+fn attach_parent_console_if_cli() {
+    let cli_mode = std::env::args().any(|a| {
+        matches!(
+            a.as_str(),
+            "--help" | "-h" | "--version" | "-V" | "--bench" | "--bench-gen"
+        )
+    });
+    if cli_mode {
+        use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+        // SAFETY: AttachConsole with the parent PID is the documented use;
+        // failure (no parent console) is expected and ignorable.
+        unsafe {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+}
+
+#[cfg(any(not(windows), debug_assertions))]
+fn attach_parent_console_if_cli() {}
+
 fn main() {
+    attach_parent_console_if_cli();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut file: Option<PathBuf> = None;
     let mut view = ViewTheme::System;
