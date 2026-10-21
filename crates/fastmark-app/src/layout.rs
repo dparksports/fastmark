@@ -319,6 +319,25 @@ impl LayoutCtx {
         arc
     }
 
+    /// One-off icon glyph from the Windows icon font (Segoe Fluent Icons /
+    /// Segoe MDL2 Assets). Line-style icons, no atlas needed.
+    pub fn ui_icon(&mut self, ch: char, font_px: f32, color: glyphon::Color) -> glyphon::Buffer {
+        let metrics = Metrics::new(font_px, font_px);
+        let mut buffer = glyphon::Buffer::new(&mut self.font_system, metrics);
+        let attrs = Attrs::new()
+            .family(Family::Name("Segoe Fluent Icons"))
+            .color(color);
+        buffer.set_text(
+            &mut self.font_system,
+            &ch.to_string(),
+            &attrs,
+            Shaping::Basic,
+        );
+        buffer.set_size(&mut self.font_system, Some(10_000.0), None);
+        buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
+
     /// Build a tiny one-off buffer (UI chrome: search bar, empty state).
     pub fn ui_buffer(
         &mut self,
@@ -401,4 +420,15 @@ impl HeightEstimator for BlockEstimator<'_> {
             Block::Rule => lh * 0.9,
         }
     }
+}
+
+/// Segoe Fluent Icons / MDL2 codepoints used by the UI.
+pub mod icons {
+    pub const CHEVRON_RIGHT: char = '\u{E76C}';
+    pub const CHEVRON_DOWN: char = '\u{E70D}';
+    pub const FOLDER: char = '\u{E8B7}';
+    pub const FOLDER_OPEN: char = '\u{E838}';
+    pub const DOC: char = '\u{E8A5}';
+    pub const SEARCH: char = '\u{E721}';
+    pub const MOON: char = '\u{E708}';
 }

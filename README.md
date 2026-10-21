@@ -46,6 +46,15 @@ You can also just **drop any `.md` file onto the window**.
 
 ![Memory](docs/memory.svg)
 
+## Design
+
+Layered-navy theme with one accent, rounded geometry, hover states, and
+Segoe Fluent line icons — depth comes from background-lightness steps, never
+borders. The left tree has FOLDERS/RECENT sections; the browser home has a
+page header with clickable breadcrumbs, a pill status bar, and a circular
+folder-picker FAB; the reader has a bottom status bar with the current
+heading and action pills.
+
 ## Features
 
 - **File browser home** — launch without arguments and fastmark lists every
@@ -89,6 +98,7 @@ You can also just **drop any `.md` file onto the window**.
 | `F10` | file-tree sidebar (expand folders, click to open) |
 | `Ctrl+wheel`, `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | zoom |
 | `F8` | toggle dark/light theme |
+| `Ctrl+O` | choose a folder (native picker) |
 | `Esc` | close search / clear filter / quit |
 
 ## Virtualized scrolling

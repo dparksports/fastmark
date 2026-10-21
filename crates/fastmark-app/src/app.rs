@@ -37,6 +37,13 @@ enum RowAction {
     /// Toggle a file-tree folder (expand/collapse).
     TreeDir(PathBuf),
     FolderPick(usize),
+    /// Open the native folder picker.
+    PickFolder,
+    /// Point the browser at a different root folder.
+    SetRoot(PathBuf),
+    /// Bottom-status pills.
+    PillFolderSearch,
+    PillTheme,
 }
 
 struct RowHit {
@@ -119,6 +126,9 @@ pub struct App {
     tree_dirty: bool,
     tree_scroll: usize,
     last_cursor: Option<(f32, f32)>,
+    /// Row under the cursor (index into the previous frame's row_hits).
+    hot_row: Option<usize>,
+    recent: Vec<PathBuf>,
 
     dragging_scrollbar: bool,
     pending_click: bool,
@@ -173,6 +183,8 @@ impl App {
             tree_dirty: true,
             tree_scroll: 0,
             last_cursor: None,
+            hot_row: None,
+            recent: crate::browse::load_recent(),
             dragging_scrollbar: false,
             pending_click: false,
             row_hits: Vec::new(),
@@ -313,6 +325,22 @@ impl App {
             width_px: col_px.max(100.0),
             font_px,
         };
+
+        // Hover comes from the cursor position against the previous frame's
+        // row map (one frame of latency, zero event plumbing).
+        self.hot_row = self.last_cursor.and_then(|(cx, cy)| {
+            self.row_hits
+                .iter()
+                .position(|h| cx >= h.x && cx <= h.x + h.w && cy >= h.y && cy <= h.y + h.h)
+        });
+        if let Some(w) = self.window.clone() {
+            let cursor = if self.hot_row.is_some() {
+                winit::window::CursorIcon::Pointer
+            } else {
+                winit::window::CursorIcon::Default
+            };
+            w.set_cursor(cursor);
+        }
 
         let mut quads: Vec<Quad> = Vec::new();
         let mut image_draws: Vec<(f32, f32, f32, f32, u32)> = Vec::new();
@@ -475,22 +503,10 @@ impl App {
                 );
                 return;
             };
+            let root = fv.dir.clone();
+            let row_base = self.row_hits.len();
             if self.files_sidebar {
-                let root_name = fv
-                    .dir
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "files".to_string());
-                let root = fv.dir.clone();
-                let entries: Vec<crate::browse::FileEntry> = fv
-                    .entries
-                    .iter()
-                    .map(|e| crate::browse::FileEntry {
-                        path: e.path.clone(),
-                        name: e.name.clone(),
-                    })
-                    .collect();
-                let _ = (root, entries);
+                let recent = self.recent.clone();
                 draw_tree_sidebar(
                     layout,
                     &theme,
@@ -499,13 +515,16 @@ impl App {
                     &mut areas_meta,
                     &mut self.row_hits,
                     self.tree.as_ref(),
-                    root_name,
+                    &recent,
+                    &root,
                     None,
                     toc_px,
                     vh,
                     scale,
                     font_px,
                     &mut self.tree_scroll,
+                    self.hot_row,
+                    row_base,
                 );
             }
             let dir_name = fv
@@ -527,60 +546,258 @@ impl App {
             }
             let offset = fv.offset.min(filtered.len());
             let x0 = toc_px + 24.0 * scale;
+            let radius = 6.0 * scale;
 
-            let tbuf = layout.ui_buffer(
-                &format!("Markdown files — {dir_name}"),
-                font_px * 1.35,
-                theme.glyphon(theme.fg),
-            );
+            // Page header: 22px title + clickable breadcrumb subtitle.
+            let tbuf = layout.ui_buffer(&dir_name, font_px * 1.45, theme.glyphon(theme.fg));
             bufs.push(BufRef::Local(Mutex::new(tbuf)));
-            areas_meta.push((x0, 40.0 * scale, theme.glyphon(theme.fg)));
-            let status = if scanning {
-                format!("{} files · scanning…", filtered.len())
-            } else {
-                format!("{} files", filtered.len())
-            };
-            let stbuf = layout.ui_buffer(&status, font_px * 0.9, theme.glyphon(theme.dim));
-            bufs.push(BufRef::Local(Mutex::new(stbuf)));
-            areas_meta.push((x0, 78.0 * scale, theme.glyphon(theme.dim)));
-            if !filter.is_empty() {
-                let fbuf = layout.ui_buffer(
-                    &format!("filter: {filter}_"),
-                    font_px * 0.95,
-                    theme.glyphon(theme.accent),
-                );
-                bufs.push(BufRef::Local(Mutex::new(fbuf)));
-                areas_meta.push((x0, 108.0 * scale, theme.glyphon(theme.accent)));
+            areas_meta.push((x0, 36.0 * scale, theme.glyphon(theme.fg)));
+            let mut bx = x0;
+            let mut anc = fv.dir.clone();
+            let mut segments: Vec<(String, PathBuf)> = Vec::new();
+            loop {
+                let name = anc
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| anc.to_string_lossy().into_owned());
+                segments.push((name, anc.clone()));
+                match anc.parent() {
+                    Some(p) if p != anc => anc = p.to_path_buf(),
+                    _ => break,
+                }
+            }
+            segments.reverse();
+            for (i, (name, path)) in segments.iter().enumerate() {
+                if i > 0 {
+                    let sep =
+                        layout.ui_buffer("\u{203a}", font_px * 0.8, theme.glyphon(theme.faint));
+                    bufs.push(BufRef::Local(Mutex::new(sep)));
+                    areas_meta.push((bx, 76.0 * scale, theme.glyphon(theme.faint)));
+                    bx += 16.0 * scale;
+                }
+                let is_last = i + 1 == segments.len();
+                let color = if is_last {
+                    theme.glyphon(theme.dim)
+                } else {
+                    theme.glyphon(theme.faint)
+                };
+                let seg = layout.ui_buffer(name, font_px * 0.8, color);
+                bufs.push(BufRef::Local(Mutex::new(seg)));
+                areas_meta.push((bx, 76.0 * scale, color));
+                let seg_w = name.chars().count() as f32 * font_px * 0.52 + 10.0 * scale;
+                self.row_hits.push(RowHit {
+                    x: bx,
+                    y: 68.0 * scale,
+                    w: seg_w,
+                    h: 24.0 * scale,
+                    toggle_zone: 0.0,
+                    action: RowAction::SetRoot(path.clone()),
+                });
+                bx += seg_w;
+                if bx > vw - 260.0 * scale {
+                    break;
+                }
             }
 
-            for (vi, &ei) in filtered.iter().enumerate().skip(offset).take(fit) {
-                let entry = &fv.entries[ei];
-                let row_i = vi;
-                let y = list_y + (row_i - offset) as f32 * row_h;
-                let selected = row_i == sel;
-                if selected {
-                    quads.push(Quad::new(0.0, y, vw, row_h, theme.overlay_bg));
-                    quads.push(Quad::new(0.0, y, 3.0, row_h, theme.accent));
-                }
-                let nbuf = layout.ui_buffer(
-                    &entry.name,
-                    font_px,
-                    if selected {
-                        theme.glyphon(theme.fg)
+            // Pill bar.
+            let mut px_ = x0;
+            let pill_h = 26.0 * scale;
+            let mut pill = |icon: char, text: &str, accent: bool, px_in: f32| -> f32 {
+                let w = text.chars().count() as f32 * font_px * 0.6 + 44.0 * scale;
+                quads.push(Quad::pill(
+                    px_in,
+                    100.0 * scale,
+                    w,
+                    pill_h,
+                    if accent {
+                        theme.sel_tint()
                     } else {
-                        theme.glyphon(theme.dim)
+                        theme.pill_bg()
                     },
+                ));
+                let ic = layout.ui_icon(icon, font_px * 0.72, theme.glyphon(theme.dim));
+                bufs.push(BufRef::Local(Mutex::new(ic)));
+                areas_meta.push((
+                    px_in + 10.0 * scale,
+                    104.0 * scale,
+                    theme.glyphon(theme.dim),
+                ));
+                let tx = layout.ui_buffer(text, font_px * 0.82, theme.glyphon(theme.dim));
+                bufs.push(BufRef::Local(Mutex::new(tx)));
+                areas_meta.push((
+                    px_in + 26.0 * scale,
+                    104.0 * scale,
+                    theme.glyphon(theme.dim),
+                ));
+                w + 8.0 * scale
+            };
+            px_ += pill(
+                crate::layout::icons::DOC,
+                &format!("{} files", filtered.len()),
+                false,
+                px_,
+            );
+            if scanning {
+                px_ += pill(
+                    crate::layout::icons::CHEVRON_DOWN,
+                    "scanning\u{2026}",
+                    true,
+                    px_,
                 );
-                bufs.push(BufRef::Local(Mutex::new(nbuf)));
-                areas_meta.push((x0 + 10.0 * scale, y + 7.0 * scale, theme.glyphon(theme.fg)));
+            }
+            if !filter.is_empty() {
+                pill(
+                    crate::layout::icons::SEARCH,
+                    &format!("filter: {filter}"),
+                    true,
+                    px_,
+                );
+            }
+
+            // FAB (top-right): choose folder.
+            let fab = 44.0 * scale;
+            let fab_x = vw - fab - 28.0 * scale;
+            quads.push(Quad::rounded(
+                fab_x,
+                36.0 * scale,
+                fab,
+                fab,
+                theme.accent,
+                fab / 2.0,
+            ));
+            let fib = layout.ui_icon(
+                crate::layout::icons::FOLDER_OPEN,
+                font_px * 1.0,
+                glyphon::Color::rgb(255, 255, 255),
+            );
+            bufs.push(BufRef::Local(Mutex::new(fib)));
+            areas_meta.push((
+                fab_x + fab / 2.0 - font_px * 0.5,
+                36.0 * scale + fab / 2.0 - font_px * 0.6,
+                glyphon::Color::rgb(255, 255, 255),
+            ));
+            self.row_hits.push(RowHit {
+                x: fab_x,
+                y: 36.0 * scale,
+                w: fab,
+                h: fab,
+                toggle_zone: 0.0,
+                action: RowAction::PickFolder,
+            });
+
+            if filtered.is_empty() && !scanning {
+                // Empty state.
+                let eib = layout.ui_icon(
+                    crate::layout::icons::FOLDER,
+                    44.0 * scale,
+                    theme.glyphon(theme.faint),
+                );
+                bufs.push(BufRef::Local(Mutex::new(eib)));
+                areas_meta.push((
+                    vw / 2.0 - 22.0 * scale,
+                    vh / 2.0 - 120.0 * scale,
+                    theme.glyphon(theme.faint),
+                ));
+                let et = layout.ui_buffer(
+                    "No Markdown files in this folder",
+                    font_px * 1.1,
+                    theme.glyphon(theme.dim),
+                );
+                bufs.push(BufRef::Local(Mutex::new(et)));
+                areas_meta.push((
+                    vw / 2.0 - 130.0 * scale,
+                    vh / 2.0 - 40.0 * scale,
+                    theme.glyphon(theme.dim),
+                ));
+                let bw = 190.0 * scale;
+                let bh = 40.0 * scale;
+                quads.push(Quad::rounded(
+                    vw / 2.0 - bw / 2.0,
+                    vh / 2.0 + 10.0 * scale,
+                    bw,
+                    bh,
+                    theme.accent,
+                    8.0 * scale,
+                ));
+                let bb = layout.ui_buffer(
+                    "Choose a folder\u{2026}",
+                    font_px * 0.95,
+                    glyphon::Color::rgb(255, 255, 255),
+                );
+                bufs.push(BufRef::Local(Mutex::new(bb)));
+                areas_meta.push((
+                    vw / 2.0 - 62.0 * scale,
+                    vh / 2.0 + 20.0 * scale,
+                    glyphon::Color::rgb(255, 255, 255),
+                ));
                 self.row_hits.push(RowHit {
-                    x: 0.0,
-                    y,
-                    w: vw,
-                    h: row_h,
+                    x: vw / 2.0 - bw / 2.0,
+                    y: vh / 2.0 + 10.0 * scale,
+                    w: bw,
+                    h: bh,
                     toggle_zone: 0.0,
-                    action: RowAction::OpenFile(entry.path.clone()),
+                    action: RowAction::PickFolder,
                 });
+            } else {
+                for (vi, &ei) in filtered.iter().enumerate().skip(offset).take(fit) {
+                    let entry = &fv.entries[ei];
+                    let row_i = vi;
+                    let y = list_y + (row_i - offset) as f32 * row_h;
+                    let selected = row_i == sel;
+                    let hot = self.hot_row == Some(self.row_hits.len());
+                    if selected {
+                        quads.push(Quad::rounded(
+                            8.0 * scale,
+                            y,
+                            vw - 16.0 * scale,
+                            row_h,
+                            theme.sel_tint(),
+                            radius,
+                        ));
+                        quads.push(Quad::new(
+                            8.0 * scale,
+                            y + 3.0 * scale,
+                            3.0,
+                            row_h - 6.0 * scale,
+                            theme.accent,
+                        ));
+                    } else if hot {
+                        quads.push(Quad::rounded(
+                            8.0 * scale,
+                            y,
+                            vw - 16.0 * scale,
+                            row_h,
+                            theme.hover(),
+                            radius,
+                        ));
+                    }
+                    let ibuf = layout.ui_icon(
+                        crate::layout::icons::DOC,
+                        font_px * 0.75,
+                        theme.glyphon(theme.dim),
+                    );
+                    bufs.push(BufRef::Local(Mutex::new(ibuf)));
+                    areas_meta.push((x0 + 8.0 * scale, y + 6.0 * scale, theme.glyphon(theme.dim)));
+                    let nbuf = layout.ui_buffer(
+                        &entry.name,
+                        font_px,
+                        if selected {
+                            theme.glyphon(theme.fg)
+                        } else {
+                            theme.glyphon(theme.dim)
+                        },
+                    );
+                    bufs.push(BufRef::Local(Mutex::new(nbuf)));
+                    areas_meta.push((x0 + 30.0 * scale, y + 7.0 * scale, theme.glyphon(theme.fg)));
+                    self.row_hits.push(RowHit {
+                        x: 0.0,
+                        y,
+                        w: vw,
+                        h: row_h,
+                        toggle_zone: 0.0,
+                        action: RowAction::OpenFile(entry.path.clone()),
+                    });
+                }
             }
             let fbuf = layout.ui_buffer(
                 "type to filter · ↑↓ select · Enter open · Ctrl+Shift+F search folder",
@@ -802,11 +1019,12 @@ impl App {
 
         // Sidebars: outline (synced, collapsible) or file tree.
         if self.files_sidebar {
-            let root_name = self
+            let (root, recent) = self
                 .files_view
                 .as_ref()
-                .and_then(|fv| fv.dir.file_name().map(|n| n.to_string_lossy().into_owned()))
-                .unwrap_or_else(|| "files".to_string());
+                .map(|fv| (fv.dir.clone(), self.recent.clone()))
+                .unwrap_or((PathBuf::from("."), Vec::new()));
+            let row_base = self.row_hits.len();
             draw_tree_sidebar(
                 layout,
                 &theme,
@@ -815,13 +1033,16 @@ impl App {
                 &mut areas_meta,
                 &mut self.row_hits,
                 self.tree.as_ref(),
-                root_name,
+                &recent,
+                &root,
                 Some(ds_path),
                 toc_px,
                 vh,
                 scale,
                 font_px,
                 &mut self.tree_scroll,
+                self.hot_row,
+                row_base,
             );
         } else if self.toc_open {
             quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
@@ -861,15 +1082,32 @@ impl App {
                 let y = 18.0 * scale + (vi - start) as f32 * entry_h;
                 let is_active = active_vis == Some(vi);
                 let indent = (e.level as f32 - 1.0) * 13.0 * scale + 34.0 * scale;
+                let hot = self.hot_row == Some(self.row_hits.len());
                 if is_active {
-                    quads.push(Quad::new(
-                        0.0,
-                        y - 5.0 * scale,
-                        toc_px,
-                        entry_h,
-                        theme.overlay_bg,
+                    quads.push(Quad::rounded(
+                        8.0 * scale,
+                        y - 4.0 * scale,
+                        toc_px - 16.0 * scale,
+                        entry_h - 2.0 * scale,
+                        theme.sel_tint(),
+                        6.0 * scale,
                     ));
-                    quads.push(Quad::new(0.0, y - 5.0 * scale, 3.0, entry_h, theme.accent));
+                    quads.push(Quad::new(
+                        8.0 * scale,
+                        y - 1.0 * scale,
+                        3.0,
+                        entry_h - 8.0 * scale,
+                        theme.accent,
+                    ));
+                } else if hot {
+                    quads.push(Quad::rounded(
+                        8.0 * scale,
+                        y - 4.0 * scale,
+                        toc_px - 16.0 * scale,
+                        entry_h - 2.0 * scale,
+                        theme.hover(),
+                        6.0 * scale,
+                    ));
                 }
                 // Fold arrow when this heading has children.
                 let has_children = ds_parsed
@@ -970,6 +1208,85 @@ impl App {
             areas_meta.push((toc_px + 20.0 * scale, 14.0 * scale, theme.glyphon(theme.fg)));
             bufs.push(BufRef::Local(Mutex::new(cbuf)));
             areas_meta.push((vw - 160.0 * scale, 16.0 * scale, theme.glyphon(theme.dim)));
+        }
+
+        // Bottom status bar: breadcrumb + current heading + action pills.
+        {
+            use crate::layout::icons;
+            let bar_h = 28.0 * scale;
+            let y0 = vh - bar_h;
+            quads.push(Quad::new(0.0, y0, vw, bar_h, theme.sidebar_bg));
+            quads.push(Quad::new(0.0, y0, vw, 1.0, theme.rule));
+            let mut tx = 16.0 * scale;
+            let file_title = ds_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let tbuf = layout.ui_buffer(&file_title, font_px * 0.78, theme.glyphon(theme.dim));
+            bufs.push(BufRef::Local(Mutex::new(tbuf)));
+            areas_meta.push((tx, y0 + 6.0 * scale, theme.glyphon(theme.dim)));
+            tx += file_title.chars().count() as f32 * font_px * 0.48 + 12.0 * scale;
+            // Current heading.
+            let heading: String = {
+                let mut cur = String::new();
+                for e in &ds_parsed.toc {
+                    if index.offset_of(e.block as usize) <= scroll + 40.0 {
+                        cur = e.text.clone();
+                    } else {
+                        break;
+                    }
+                }
+                cur
+            };
+            if !heading.is_empty() {
+                let cut: String = heading.chars().take(56).collect();
+                let sep = layout.ui_buffer("\u{203a}", font_px * 0.72, theme.glyphon(theme.faint));
+                bufs.push(BufRef::Local(Mutex::new(sep)));
+                areas_meta.push((tx, y0 + 6.0 * scale, theme.glyphon(theme.faint)));
+                tx += 14.0 * scale;
+                let hbuf = layout.ui_buffer(&cut, font_px * 0.78, theme.glyphon(theme.fg));
+                bufs.push(BufRef::Local(Mutex::new(hbuf)));
+                areas_meta.push((tx, y0 + 6.0 * scale, theme.glyphon(theme.fg)));
+            }
+            // Right-side pills: folder search + theme.
+            let pill_h = 20.0 * scale;
+            let mut draw_pill =
+                |x: f32, icon: char, action: RowAction, layout: &mut LayoutCtx| -> f32 {
+                    let w = 64.0 * scale;
+                    let hot = self.hot_row == Some(self.row_hits.len());
+                    let bg = if hot {
+                        theme.sel_tint()
+                    } else {
+                        theme.pill_bg()
+                    };
+                    quads.push(Quad::pill(x, y0 + 4.0 * scale, w, pill_h, bg));
+                    let ic = layout.ui_icon(icon, font_px * 0.68, theme.glyphon(theme.dim));
+                    bufs.push(BufRef::Local(Mutex::new(ic)));
+                    areas_meta.push((x + 10.0 * scale, y0 + 8.0 * scale, theme.glyphon(theme.dim)));
+                    self.row_hits.push(RowHit {
+                        x,
+                        y: y0 + 4.0 * scale,
+                        w,
+                        h: pill_h,
+                        toggle_zone: 0.0,
+                        action,
+                    });
+                    w + 8.0 * scale
+                };
+            let mut px_ = vw - 16.0 * scale;
+            let w2 = draw_pill(
+                px_ - 64.0 * scale,
+                icons::SEARCH,
+                RowAction::PillFolderSearch,
+                layout,
+            );
+            px_ -= w2;
+            let _ = draw_pill(
+                px_ - 64.0 * scale,
+                icons::MOON,
+                RowAction::PillTheme,
+                layout,
+            );
         }
 
         // Lock all buffers (in collection order) and build the text areas.
@@ -1186,6 +1503,30 @@ impl App {
                 }
                 self.redraw();
             }
+            RowAction::PickFolder => {
+                if let Some(w) = self.window.clone() {
+                    if let Some(dir) = crate::theme::platform::pick_folder(&w) {
+                        self.set_root(dir);
+                    }
+                }
+            }
+            RowAction::SetRoot(path) => self.set_root(path.clone()),
+            RowAction::PillFolderSearch => {
+                let q = self
+                    .folder_search
+                    .as_ref()
+                    .map(|fs| fs.query.clone())
+                    .unwrap_or_default();
+                self.start_folder_search(q);
+            }
+            RowAction::PillTheme => {
+                self.theme = if self.theme.dark {
+                    Theme::light()
+                } else {
+                    Theme::dark()
+                };
+                self.apply_theme_change();
+            }
             RowAction::FolderPick(i) => {
                 if let Some((path, byte)) = self
                     .folder_search
@@ -1197,6 +1538,19 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Point the whole browser (walker, tree, recent) at a new folder.
+    fn set_root(&mut self, dir: PathBuf) {
+        crate::browse::push_recent(&dir);
+        self.recent = crate::browse::load_recent();
+        self.files_view = Some(FilesView::new(dir));
+        self.tree_scroll = 0;
+        if let Some(tree) = self.tree.as_mut() {
+            tree.expanded.clear();
+        }
+        self.tree_dirty = true;
+        self.redraw();
     }
 
     /// Step the selection in whichever list view is active (browser or
@@ -1226,7 +1580,8 @@ impl App {
     }
 }
 
-/// Draw the left file-tree sidebar into the shared frame buffers.
+/// Draw the left file-tree sidebar (with FOLDERS + RECENT sections, icons,
+/// hover and selection tints) into the shared frame buffers.
 #[allow(clippy::too_many_arguments)]
 fn draw_tree_sidebar(
     layout: &mut LayoutCtx,
@@ -1236,60 +1591,112 @@ fn draw_tree_sidebar(
     areas_meta: &mut Vec<(f32, f32, glyphon::Color)>,
     row_hits: &mut Vec<RowHit>,
     tree: Option<&FileTree>,
-    root_name: String,
+    recent: &[PathBuf],
+    current_root: &std::path::Path,
     cur_path: Option<&std::path::Path>,
     toc_px: f32,
     vh: f32,
     scale: f32,
     font_px: f32,
     tree_scroll: &mut usize,
+    hot_row: Option<usize>,
+    row_base: usize,
 ) {
+    use crate::layout::icons;
+    let radius = 6.0 * scale;
     quads.push(Quad::new(0.0, 0.0, toc_px, vh, theme.sidebar_bg));
-    let header = layout.ui_buffer(&root_name, font_px * 0.85, theme.glyphon(theme.faint));
-    bufs.push(BufRef::Local(Mutex::new(header)));
-    areas_meta.push((18.0 * scale, 14.0 * scale, theme.glyphon(theme.faint)));
-    let entry_h = 28.0 * scale;
-    let fit = ((vh - 40.0 * scale) / entry_h).floor().max(1.0) as usize;
+    let label = |layout: &mut LayoutCtx,
+                 bufs: &mut Vec<BufRef>,
+                 areas_meta: &mut Vec<(f32, f32, glyphon::Color)>,
+                 text: &str,
+                 y: f32| {
+        let b = layout.ui_buffer(
+            &text.to_uppercase(),
+            font_px * 0.72,
+            theme.glyphon(theme.faint),
+        );
+        bufs.push(BufRef::Local(Mutex::new(b)));
+        areas_meta.push((16.0 * scale, y, theme.glyphon(theme.faint)));
+    };
+    let entry_h = 30.0 * scale;
     let rows = tree.map(|t| t.rows.as_slice()).unwrap_or(&[]);
+    let tree_fit = ((vh - 120.0 * scale) / entry_h).floor().max(1.0) as usize;
     *tree_scroll = (*tree_scroll).min(rows.len().saturating_sub(1));
-    for (vi, row) in rows.iter().enumerate().skip(*tree_scroll).take(fit) {
-        let y = 36.0 * scale + (vi - *tree_scroll) as f32 * entry_h;
-        let indent = 14.0 * scale + row.depth as f32 * 13.0 * scale;
+
+    label(layout, bufs, areas_meta, "folders", 16.0 * scale);
+    let mut y = 40.0 * scale;
+    let mut row_i = row_base;
+    for (vi, row) in rows.iter().enumerate().skip(*tree_scroll).take(tree_fit) {
+        let y_row = y + (vi - *tree_scroll) as f32 * entry_h;
         let is_cur = !row.is_dir && cur_path == Some(row.path.as_path());
+        let hot = hot_row == Some(row_i);
         if is_cur {
-            quads.push(Quad::new(
-                0.0,
-                y - 3.0 * scale,
-                toc_px,
+            quads.push(Quad::rounded(
+                8.0 * scale,
+                y_row,
+                toc_px - 16.0 * scale,
                 entry_h,
-                theme.overlay_bg,
+                theme.sel_tint(),
+                radius,
             ));
-            quads.push(Quad::new(0.0, y - 3.0 * scale, 3.0, entry_h, theme.accent));
+            quads.push(Quad::new(
+                8.0 * scale,
+                y_row + 3.0 * scale,
+                3.0,
+                entry_h - 6.0 * scale,
+                theme.accent,
+            ));
+        } else if hot {
+            quads.push(Quad::rounded(
+                8.0 * scale,
+                y_row,
+                toc_px - 16.0 * scale,
+                entry_h,
+                theme.hover(),
+                radius,
+            ));
         }
-        let arrow = if row.is_dir {
+        let indent = 12.0 * scale + row.depth as f32 * 14.0 * scale;
+        let glyph = if row.is_dir {
             if row.expanded {
-                "\u{25be}"
+                icons::CHEVRON_DOWN
             } else {
-                "\u{25b8}"
+                icons::CHEVRON_RIGHT
             }
         } else {
-            ""
+            icons::DOC
         };
-        if !arrow.is_empty() {
-            let abuf = layout.ui_buffer(arrow, font_px * 0.78, theme.glyphon(theme.dim));
-            bufs.push(BufRef::Local(Mutex::new(abuf)));
-            areas_meta.push((indent, y + 2.0 * scale, theme.glyphon(theme.dim)));
+        let gbuf = layout.ui_icon(glyph, font_px * 0.72, theme.glyphon(theme.dim));
+        bufs.push(BufRef::Local(Mutex::new(gbuf)));
+        areas_meta.push((indent, y_row + 5.0 * scale, theme.glyphon(theme.dim)));
+        if row.is_dir {
+            let fbuf = layout.ui_icon(icons::FOLDER, font_px * 0.72, theme.glyphon(theme.dim));
+            bufs.push(BufRef::Local(Mutex::new(fbuf)));
+            areas_meta.push((
+                indent + 14.0 * scale,
+                y_row + 5.0 * scale,
+                theme.glyphon(theme.dim),
+            ));
         }
-        let label = if row.name.chars().count() > 26 {
-            let cut: String = row.name.chars().take(25).collect();
+        let label_text = if row.name.chars().count() > 24 {
+            let cut: String = row.name.chars().take(23).collect();
             cut + "\u{2026}"
         } else {
             row.name.clone()
         };
-        let color = theme.glyphon(if is_cur { theme.fg } else { theme.dim });
-        let nbuf = layout.ui_buffer(&label, font_px * 0.84, color);
+        let color = if is_cur {
+            theme.glyphon(theme.fg)
+        } else {
+            theme.glyphon(theme.dim)
+        };
+        let nbuf = layout.ui_buffer(&label_text, font_px * 0.82, color);
         bufs.push(BufRef::Local(Mutex::new(nbuf)));
-        areas_meta.push((indent + 16.0 * scale, y, color));
+        let text_x = if row.is_dir {
+            indent + 32.0 * scale
+        } else {
+            indent + 16.0 * scale
+        };
+        areas_meta.push((text_x, y_row + 3.0 * scale, color));
         let action = if row.is_dir {
             RowAction::TreeDir(row.path.clone())
         } else {
@@ -1297,14 +1704,84 @@ fn draw_tree_sidebar(
         };
         row_hits.push(RowHit {
             x: 0.0,
-            y: y - 3.0 * scale,
+            y: y_row,
             w: toc_px,
             h: entry_h,
             toggle_zone: 0.0,
             action,
         });
+        row_i += 1;
     }
-    let _ = &root_name;
+    y += tree_fit as f32 * entry_h + 10.0 * scale;
+
+    if !recent.is_empty() {
+        label(layout, bufs, areas_meta, "recent", y + 4.0 * scale);
+        y += 26.0 * scale;
+        for dir in recent {
+            if y + entry_h > vh - 8.0 {
+                break;
+            }
+            let is_cur = dir == current_root;
+            let hot = hot_row == Some(row_i);
+            if is_cur {
+                quads.push(Quad::rounded(
+                    8.0 * scale,
+                    y,
+                    toc_px - 16.0 * scale,
+                    entry_h,
+                    theme.sel_tint(),
+                    radius,
+                ));
+                quads.push(Quad::new(
+                    8.0 * scale,
+                    y + 3.0 * scale,
+                    3.0,
+                    entry_h - 6.0 * scale,
+                    theme.accent,
+                ));
+            } else if hot {
+                quads.push(Quad::rounded(
+                    8.0 * scale,
+                    y,
+                    toc_px - 16.0 * scale,
+                    entry_h,
+                    theme.hover(),
+                    radius,
+                ));
+            }
+            let fbuf = layout.ui_icon(icons::FOLDER, font_px * 0.72, theme.glyphon(theme.dim));
+            bufs.push(BufRef::Local(Mutex::new(fbuf)));
+            areas_meta.push((24.0 * scale, y + 5.0 * scale, theme.glyphon(theme.dim)));
+            let name = dir
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| dir.to_string_lossy().into_owned());
+            let label_text = if name.chars().count() > 22 {
+                let cut: String = name.chars().take(21).collect();
+                cut + "\u{2026}"
+            } else {
+                name
+            };
+            let color = if is_cur {
+                theme.glyphon(theme.fg)
+            } else {
+                theme.glyphon(theme.dim)
+            };
+            let nbuf = layout.ui_buffer(&label_text, font_px * 0.82, color);
+            bufs.push(BufRef::Local(Mutex::new(nbuf)));
+            areas_meta.push((42.0 * scale, y + 3.0 * scale, color));
+            row_hits.push(RowHit {
+                x: 0.0,
+                y,
+                w: toc_px,
+                h: entry_h,
+                toggle_zone: 0.0,
+                action: RowAction::SetRoot(dir.clone()),
+            });
+            row_i += 1;
+            y += entry_h;
+        }
+    }
 }
 
 impl ApplicationHandler for App {

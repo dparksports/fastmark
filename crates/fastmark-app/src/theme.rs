@@ -30,34 +30,36 @@ impl Theme {
     pub fn dark() -> Theme {
         Theme {
             dark: true,
-            bg: [0x18, 0x18, 0x25],
-            sidebar_bg: [0x13, 0x13, 0x1e],
-            overlay_bg: [0x22, 0x22, 0x33],
-            fg: [0xcd, 0xd6, 0xf4],
-            dim: [0x93, 0x99, 0xb8],
-            faint: [0x5c, 0x61, 0x84],
-            accent: [0x89, 0xb4, 0xfa],
-            code_bg: [0x11, 0x11, 0x1b],
-            quote_bar: [0x45, 0x47, 0x5a],
-            rule: [0x3a, 0x3d, 0x55],
-            thumb: [0x4a, 0x4d, 0x68],
+            // Layered-navy design system: depth from background lightness
+            // steps, never borders.
+            bg: [0x0d, 0x11, 0x17],
+            sidebar_bg: [0x0f, 0x14, 0x20],
+            overlay_bg: [0x1e, 0x22, 0x2b],
+            fg: [0xe8, 0xea, 0xed],
+            dim: [0x7a, 0x84, 0x94],
+            faint: [0x4a, 0x55, 0x68],
+            accent: [0x3b, 0x82, 0xf6],
+            code_bg: [0x14, 0x18, 0x21],
+            quote_bar: [0x2a, 0x30, 0x3d],
+            rule: [0x24, 0x2a, 0x35],
+            thumb: [0x33, 0x3a, 0x47],
         }
     }
 
     pub fn light() -> Theme {
         Theme {
             dark: false,
-            bg: [0xfa, 0xfa, 0xfc],
-            sidebar_bg: [0xf0, 0xf0, 0xf4],
+            bg: [0xf7, 0xf8, 0xfa],
+            sidebar_bg: [0xf0, 0xf2, 0xf5],
             overlay_bg: [0xff, 0xff, 0xff],
-            fg: [0x22, 0x22, 0x30],
-            dim: [0x60, 0x62, 0x74],
-            faint: [0x9a, 0x9c, 0xac],
-            accent: [0x1a, 0x5f, 0xb4],
-            code_bg: [0xe9, 0xe9, 0xf2],
-            quote_bar: [0xb9, 0xbb, 0xca],
-            rule: [0xd4, 0xd6, 0xe2],
-            thumb: [0xc0, 0xc2, 0xd2],
+            fg: [0x1a, 0x1d, 0x24],
+            dim: [0x5d, 0x66, 0x74],
+            faint: [0x9a, 0xa2, 0xaf],
+            accent: [0x25, 0x63, 0xeb],
+            code_bg: [0xec, 0xef, 0xf4],
+            quote_bar: [0xc3, 0xc9, 0xd4],
+            rule: [0xdf, 0xe3, 0xe9],
+            thumb: [0xc5, 0xca, 0xd3],
         }
     }
 
@@ -76,6 +78,27 @@ impl Theme {
     pub fn glyphon(&self, c: [u8; 3]) -> glyphon::Color {
         glyphon::Color::rgb(c[0], c[1], c[2])
     }
+    /// Linear blend of two sRGB triplets (0=a, 1=b).
+    pub fn mix(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
+        let f = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+        [f(a[0], b[0]), f(a[1], b[1]), f(a[2], b[2])]
+    }
+
+    /// Row-hover tint: a subtle lift from the panel tone.
+    pub fn hover(&self) -> [u8; 3] {
+        self.overlay_bg
+    }
+
+    /// Selected-row tint: accent washed into the background.
+    pub fn sel_tint(&self) -> [u8; 3] {
+        Theme::mix(self.bg, self.accent, 0.22)
+    }
+
+    /// Pill background: slightly lifted panel.
+    pub fn pill_bg(&self) -> [u8; 3] {
+        Theme::mix(self.overlay_bg, self.fg, 0.06)
+    }
+
     pub fn clear(&self) -> wgpu::Color {
         let c = self.bg;
         wgpu::Color {
@@ -124,6 +147,60 @@ pub mod platform {
             }
         }
 
+        /// Native folder picker (SHBrowseForFolder, modern dialog style),
+        /// parented to the app window. Returns None if cancelled.
+        #[allow(unsafe_code)]
+        pub fn pick_folder(parent: &winit::window::Window) -> Option<std::path::PathBuf> {
+            use std::ffi::c_void;
+            use windows_sys::Win32::Foundation::{BOOL, HWND};
+            use windows_sys::Win32::System::Com::CoTaskMemFree;
+            use windows_sys::Win32::UI::Shell::{
+                SHBrowseForFolderW, SHGetPathFromIDListW, BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS,
+                BROWSEINFOW,
+            };
+            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+            let Ok(handle) = parent.window_handle() else {
+                return None;
+            };
+            let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+                return None;
+            };
+            let hwnd = win32.hwnd.get() as HWND;
+
+            let title: Vec<u16> = "Choose a folder of Markdown files\0"
+                .encode_utf16()
+                .collect();
+            let mut display = [0u16; 260];
+            let bi = BROWSEINFOW {
+                hwndOwner: hwnd,
+                pidlRoot: std::ptr::null_mut(),
+                pszDisplayName: display.as_mut_ptr(),
+                lpszTitle: title.as_ptr(),
+                ulFlags: BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE,
+                lpfn: None,
+                lParam: 0,
+                iImage: 0,
+            };
+            // SAFETY: bi and its buffers live for the duration of the call;
+            // the returned PIDL is freed via CoTaskMemFree on all paths.
+            unsafe {
+                let pidl = SHBrowseForFolderW(&bi);
+                if pidl.is_null() {
+                    return None;
+                }
+                let mut path = [0u16; 260];
+                let ok: BOOL = SHGetPathFromIDListW(pidl, path.as_mut_ptr());
+                CoTaskMemFree(pidl as *mut c_void);
+                if ok == 0 {
+                    return None;
+                }
+                let len = path.iter().position(|&c| c == 0).unwrap_or(0);
+                use std::os::windows::ffi::OsStringExt;
+                Some(std::ffi::OsString::from_wide(&path[..len]).into())
+            }
+        }
+
         /// Peak working set in bytes, for the bench mode.
         #[allow(unsafe_code)]
         pub fn peak_rss() -> Option<u64> {
@@ -158,6 +235,9 @@ pub mod platform {
             false
         }
         pub fn apply_titlebar_theme(_window: &winit::window::Window, _dark: bool) {}
+        pub fn pick_folder(_parent: &winit::window::Window) -> Option<std::path::PathBuf> {
+            None
+        }
         pub fn peak_rss() -> Option<u64> {
             rss_field("VmHWM:")
         }

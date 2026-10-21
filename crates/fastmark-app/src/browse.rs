@@ -408,3 +408,44 @@ fn walk_tree(
         }
     }
 }
+
+/// Recent folders, persisted as plain lines (most recent first) under
+/// %APPDATA%\fastmark\recent.txt (or ~/.config/fastmark elsewhere).
+pub fn recent_file() -> PathBuf {
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join("fastmark").join("recent.txt")
+}
+
+pub fn load_recent() -> Vec<PathBuf> {
+    std::fs::read_to_string(recent_file())
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| {
+                    let p = PathBuf::from(l.trim());
+                    p.is_dir().then_some(p)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+pub fn push_recent(dir: &Path) {
+    let mut list = load_recent();
+    list.retain(|p| p != dir);
+    list.insert(0, dir.to_path_buf());
+    list.truncate(8);
+    let path = recent_file();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let body: String = list
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let _ = std::fs::write(path, body + "\n");
+}

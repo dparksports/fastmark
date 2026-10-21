@@ -15,6 +15,7 @@ struct Quad {
     pos: vec2<f32>,
     size: vec2<f32>,
     color: vec4<f32>,
+    radius: f32,
 };
 @group(0) @binding(0) var<storage, read> quads: array<Quad>;
 @group(0) @binding(1) var<uniform> viewport: vec2<f32>;
@@ -22,6 +23,9 @@ struct Quad {
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) color: vec4<f32>,
+    @location(1) local: vec2<f32>,
+    @location(2) size: vec2<f32>,
+    @location(3) radius: f32,
 };
 
 @vertex
@@ -36,12 +40,23 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VsOut
     var out: VsOut;
     out.pos = vec4<f32>(px.x / viewport.x * 2.0 - 1.0, 1.0 - px.y / viewport.y * 2.0, 0.0, 1.0);
     out.color = q.color;
+    out.local = c * q.size;
+    out.size = q.size;
+    out.radius = q.radius;
     return out;
 }
 
+// Rounded-rectangle signed distance (clamped radius = pill when >= half).
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-    return in.color;
+    let half = in.size / 2.0;
+    let r = min(in.radius, min(half.x, half.y));
+    let p = abs(in.local - half) - (half - vec2<f32>(r));
+    let d = length(max(p, vec2<f32>(0.0))) + min(max(p.x, p.y), 0.0) - r;
+    let aa = 1.0;
+    let alpha = 1.0 - smoothstep(-aa, aa, d);
+    if alpha <= 0.0 { discard; }
+    return vec4<f32>(in.color.rgb, in.color.a * alpha);
 }
 "#;
 
@@ -92,10 +107,18 @@ pub struct Quad {
     pub g: f32,
     pub b: f32,
     pub a: f32,
+    pub radius: f32,
+    _pad: [f32; 3],
 }
 
 impl Quad {
+    /// Sharp-cornered quad.
     pub fn new(x: f32, y: f32, w: f32, h: f32, color: [u8; 3]) -> Quad {
+        Quad::rounded(x, y, w, h, color, 0.0)
+    }
+
+    /// Rounded quad; `radius >= h/2` yields a pill.
+    pub fn rounded(x: f32, y: f32, w: f32, h: f32, color: [u8; 3], radius: f32) -> Quad {
         Quad {
             x,
             y,
@@ -105,7 +128,14 @@ impl Quad {
             g: color[1] as f32 / 255.0,
             b: color[2] as f32 / 255.0,
             a: 1.0,
+            radius,
+            _pad: [0.0; 3],
         }
+    }
+
+    /// Pill-shaped quad (fully rounded ends).
+    pub fn pill(x: f32, y: f32, w: f32, h: f32, color: [u8; 3]) -> Quad {
+        Quad::rounded(x, y, w, h, color, h / 2.0)
     }
 }
 
@@ -252,7 +282,7 @@ impl Renderer {
         });
         let quad_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("quad-bgl"),
-            entries: &[storage_bgl_entry(0, 32), uniform_bgl_entry(1)],
+            entries: &[storage_bgl_entry(0, 48), uniform_bgl_entry(1)],
         });
         let quad_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("quad-pl"),
@@ -287,7 +317,7 @@ impl Renderer {
         let quad_capacity = 256u64;
         let quad_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quad-instances"),
-            size: quad_capacity * 32,
+            size: quad_capacity * 48,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -522,7 +552,7 @@ impl Renderer {
         );
 
         if !quads.is_empty() {
-            let needed = quads.len() as u64 * 32;
+            let needed = quads.len() as u64 * 48;
             if needed > self.quad_capacity {
                 self.quad_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("quad-instances"),
