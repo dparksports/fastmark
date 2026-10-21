@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "mdview-app"
-version = "0.1.0"
+version = "2026.10.20"
 dependencies = [
  "cosmic-text",
  "glyphon",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "mdview-core"
-version = "0.1.0"
+version = "2026.10.20"
 dependencies = [
  "encoding_rs",
  "memchr",

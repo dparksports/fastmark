@@ -3,7 +3,8 @@ resolver = "2"
 members = ["crates/mdview-core", "crates/mdview-app"]
 
 [workspace.package]
-version = "0.1.0"
+# CalVer: releases are dated; patches within a day use 2026.10.20.1 etc.
+version = "2026.10.20"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/dparksports/mdview"
