@@ -123,7 +123,26 @@ fn run_bench(path: &std::path::Path) {
     let mut font_system = glyphon::FontSystem::new();
     let t_fonts = t2.elapsed();
 
+    // Viewport layout: what the viewer actually does on the first frame -
+    // shape one screenful of blocks, not the document.
     let t3 = Instant::now();
+    let viewport_blocks = parsed.blocks.len().min(100);
+    for idx in 0..viewport_blocks {
+        let _ = layout::build_block_buffer(
+            &mut font_system,
+            &doc,
+            &parsed,
+            idx,
+            params,
+            &theme::Theme::dark(),
+        );
+    }
+    let t_viewport = t3.elapsed();
+    let rss_viewport = theme::platform::current_rss().unwrap_or(0);
+
+    // Stress phase: shape *every* block (the viewer never does this; it
+    // exists to expose worst-case throughput and allocator behavior).
+    let t4 = Instant::now();
     let mut total_lines = 0usize;
     for idx in 0..parsed.blocks.len() {
         let buf = layout::build_block_buffer(
@@ -136,7 +155,7 @@ fn run_bench(path: &std::path::Path) {
         );
         total_lines += buf.layout_runs().count();
     }
-    let t_layout = t3.elapsed();
+    let t_layout = t4.elapsed();
 
     let peak = theme::platform::peak_rss().unwrap_or(0);
     println!("mdview bench: {}", path.display());
@@ -152,7 +171,13 @@ fn run_bench(path: &std::path::Path) {
     println!("  parse          : {:.1} ms", t_parse.as_secs_f64() * 1e3);
     println!("  font scan      : {:.1} ms", t_fonts.as_secs_f64() * 1e3);
     println!(
-        "  full layout    : {:.1} ms ({} blocks)",
+        "  first screen   : {:.1} ms ({} blocks), RSS {:.1} MB",
+        t_viewport.as_secs_f64() * 1e3,
+        viewport_blocks,
+        rss_viewport as f64 / 1e6
+    );
+    println!(
+        "  full layout    : {:.1} ms ({} blocks) [stress test; the viewer never lays out the whole document]",
         t_layout.as_secs_f64() * 1e3,
         parsed.blocks.len()
     );

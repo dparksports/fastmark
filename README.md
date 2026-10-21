@@ -97,12 +97,30 @@ libxcb1-dev libxrandr-dev libxi-dev libxcursor-dev`).
 
 ```bash
 mdview --bench-gen 102400 > big.md   # synthesize a 100 MB markdown file
-mdview --bench big.md                 # load / parse / full-layout timings + peak RSS
+mdview --bench big.md                 # load / parse / layout timings + RSS
 ```
 
-The **CI bench job** runs this on every push against a synthetic 100 MB
+The **CI bench job** runs this on every push against a synthetic 25 MB
 document — check the latest [CI runs](https://github.com/dparksports/mdview/actions)
 for live numbers.
+
+Measured on the first CI run (windows-latest runner, release build, headless
+`--bench` mode):
+
+| Document | Blocks | Load (mmap) | Parse | Full layout (stress¹) |
+|---|---|---|---|---|
+| samples/demo.md (1.8 KB) | 34 | 0.1 ms | 0.3 ms | 79.5 ms · peak RSS 12.4 MB |
+| synthetic 100 MB | 1,414,271 | 52.5 ms | 1,254 ms | 210.5 s · peak RSS 993.7 MB² |
+
+¹ The stress phase shapes *every* block; the viewer never does. What the
+viewer actually does on open is shape one screenful (~100 blocks ≈ 0.15 ms
+per block, single-digit milliseconds), plus the numbers to its left.
+
+² Bench-mode peak, dominated by touching every page of the mapping and the
+1.4 M-block metadata of this adversarial synthetic document (thousands of
+tiny list/table blocks). The viewer's steady state is the flat line in the
+chart above: mapped pages you touched (OS-reclaimable), block metadata, and
+the bounded layout/image/glyph caches.
 
 ## Project layout
 

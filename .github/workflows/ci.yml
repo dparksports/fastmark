@@ -48,12 +48,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
-      - name: Generate synthetic 100 MB document
+      - name: Generate synthetic 25 MB document
         shell: bash
-        run: ./target/release/mdview.exe --bench-gen 102400 > bench-100mb.md
-      - name: Bench 100 MB document
+        run: ./target/release/mdview.exe --bench-gen 25600 > bench-25mb.md
+      - name: Bench 25 MB document
         shell: bash
-        run: ./target/release/mdview.exe --bench bench-100mb.md
+        run: ./target/release/mdview.exe --bench bench-25mb.md
       - name: Bench demo document
         shell: bash
         run: ./target/release/mdview.exe --bench samples/demo.md

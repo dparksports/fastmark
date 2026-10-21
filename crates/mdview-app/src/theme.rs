@@ -127,16 +127,28 @@ pub mod platform {
         /// Peak working set in bytes, for the bench mode.
         #[allow(unsafe_code)]
         pub fn peak_rss() -> Option<u64> {
+            pmc().map(|p| p.PeakWorkingSetSize as u64)
+        }
+
+        /// Current working set in bytes, for the bench mode.
+        #[allow(unsafe_code)]
+        pub fn current_rss() -> Option<u64> {
+            pmc().map(|p| p.WorkingSetSize as u64)
+        }
+
+        #[allow(unsafe_code)]
+        fn pmc() -> Option<windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS> {
             use windows_sys::Win32::System::ProcessStatus::{
                 GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
             };
             use windows_sys::Win32::System::Threading::GetCurrentProcess;
             // SAFETY: PROCESS_MEMORY_COUNTERS is a plain C struct; cb is set
             // before the call as required.
-            let mut pmc: PROCESS_MEMORY_COUNTERS = unsafe { core::mem::zeroed() };
-            pmc.cb = core::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-            let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, pmc.cb) };
-            (ok != 0).then_some(pmc.PeakWorkingSetSize as u64)
+            let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { core::mem::zeroed() };
+            counters.cb = core::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+            let ok =
+                unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+            (ok != 0).then_some(counters)
         }
     }
 
@@ -147,11 +159,17 @@ pub mod platform {
         }
         pub fn apply_titlebar_theme(_window: &winit::window::Window, _dark: bool) {}
         pub fn peak_rss() -> Option<u64> {
+            rss_field("VmHWM:")
+        }
+        pub fn current_rss() -> Option<u64> {
+            rss_field("VmRSS:")
+        }
+        fn rss_field(field: &str) -> Option<u64> {
             std::fs::read_to_string("/proc/self/status")
                 .ok()
                 .and_then(|s| {
                     s.lines()
-                        .find(|l| l.starts_with("VmHWM:"))
+                        .find(|l| l.starts_with(field))
                         .and_then(|l| {
                             l.split_whitespace()
                                 .nth(1)
