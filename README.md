@@ -104,23 +104,21 @@ The **CI bench job** runs this on every push against a synthetic 25 MB
 document — check the latest [CI runs](https://github.com/dparksports/mdview/actions)
 for live numbers.
 
-Measured on the first CI run (windows-latest runner, release build, headless
-`--bench` mode):
+Measured on CI (windows-latest runner, release build, headless `--bench`
+mode, [run 39549333608](https://github.com/dparksports/mdview/actions/runs/39549333608)):
 
-| Document | Blocks | Load (mmap) | Parse | Full layout (stress¹) |
-|---|---|---|---|---|
-| samples/demo.md (1.8 KB) | 34 | 0.1 ms | 0.3 ms | 79.5 ms · peak RSS 12.4 MB |
-| synthetic 100 MB | 1,414,271 | 52.5 ms | 1,254 ms | 210.5 s · peak RSS 993.7 MB² |
+| Document | Blocks | Load (mmap) | Parse | First screen¹ | Full layout (stress¹) |
+|---|---|---|---|---|---|
+| samples/demo.md (1.8 KB) | 34 | 0.1 ms | 0.3 ms | 17.2 ms | 3.8 ms · peak RSS 12.5 MB |
+| synthetic 25 MB | 354,071 | 9.9 ms | 267.5 ms | 94.6 ms | 60.6 s · peak RSS 255.6 MB |
 
-¹ The stress phase shapes *every* block; the viewer never does. What the
-viewer actually does on open is shape one screenful (~100 blocks ≈ 0.15 ms
-per block, single-digit milliseconds), plus the numbers to its left.
-
-² Bench-mode peak, dominated by touching every page of the mapping and the
-1.4 M-block metadata of this adversarial synthetic document (thousands of
-tiny list/table blocks). The viewer's steady state is the flat line in the
-chart above: mapped pages you touched (OS-reclaimable), block metadata, and
-the bounded layout/image/glyph caches.
+¹ *First screen* shapes the ~100 blocks a viewport actually shows on open —
+including one-time shaping warm-up (the demo's subsequent full layout of the
+same 34 blocks takes 3.8 ms). *Stress* shapes every block; the viewer never
+does. Steady-state viewer memory is the mapped pages you touched
+(OS-reclaimable), block metadata, and the bounded layout/image/glyph caches —
+the flat line in the chart above. One-time font scan on a cold runner: ~1.7 s
+(~23 ms warm).
 
 ## Project layout
 
