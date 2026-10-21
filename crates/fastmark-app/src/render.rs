@@ -266,22 +266,7 @@ impl Renderer {
                 module: &quad_shader,
                 entry_point: Some("vs"),
                 compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 32,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x4,
-                            offset: 0,
-                            shader_location: 0,
-                        },
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x4,
-                            offset: 16,
-                            shader_location: 1,
-                        },
-                    ],
-                }],
+                buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &quad_shader,
@@ -303,7 +288,7 @@ impl Renderer {
         let quad_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quad-instances"),
             size: quad_capacity * 32,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let quad_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -363,15 +348,7 @@ impl Renderer {
                 module: &image_shader,
                 entry_point: Some("vs"),
                 compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 16,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x4,
-                        offset: 0,
-                        shader_location: 0,
-                    }],
-                }],
+                buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &image_shader,
@@ -393,7 +370,7 @@ impl Renderer {
         let image_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("image-instances"),
             size: image_capacity * 16,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let image_common_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -550,7 +527,7 @@ impl Renderer {
                 self.quad_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("quad-instances"),
                     size: needed * 2,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
                 self.quad_capacity = needed * 2;
@@ -583,7 +560,7 @@ impl Renderer {
                 self.image_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some("image-instances"),
                     size: needed * 2,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
                 self.image_capacity = needed * 2;
