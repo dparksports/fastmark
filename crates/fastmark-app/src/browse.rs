@@ -454,16 +454,47 @@ pub fn recent_file() -> PathBuf {
 }
 
 pub fn load_recent() -> Vec<PathBuf> {
+    let mut seen: Vec<String> = Vec::new();
     std::fs::read_to_string(recent_file())
         .map(|s| {
             s.lines()
                 .filter_map(|l| {
                     let p = PathBuf::from(l.trim());
-                    p.is_dir().then_some(p)
+                    if !p.is_dir() || is_hidden_dir(&p) {
+                        return None;
+                    }
+                    // Case-insensitive dedupe (paths are unique per folder).
+                    let key = p.to_string_lossy().to_lowercase();
+                    if seen.contains(&key) {
+                        return None;
+                    }
+                    seen.push(key);
+                    Some(p)
                 })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Hidden folders (dot-prefixed or Windows hidden attribute) never belong
+/// in the recent list.
+fn is_hidden_dir(p: &Path) -> bool {
+    p.file_name()
+        .map(|n| n.to_string_lossy().starts_with('.'))
+        .unwrap_or(false)
+        || {
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                std::fs::metadata(p)
+                    .map(|m| m.file_attributes() & 0x2 != 0)
+                    .unwrap_or(false)
+            }
+            #[cfg(not(windows))]
+            {
+                false
+            }
+        }
 }
 
 pub fn push_recent(dir: &Path) {

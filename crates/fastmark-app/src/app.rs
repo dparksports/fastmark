@@ -39,8 +39,10 @@ enum RowAction {
     FolderPick(usize),
     /// Open the native folder picker.
     PickFolder,
-    /// Point the browser at a different root folder.
-    SetRoot(PathBuf),
+    /// Point the browser at a different root folder; `remember` decides
+    /// whether it enters the recent list (deliberate picks only - not
+    /// breadcrumb walks).
+    SetRoot(PathBuf, bool),
     /// Bottom-status pills.
     PillFolderSearch,
     PillTheme,
@@ -591,7 +593,7 @@ impl App {
                     w: seg_w,
                     h: 24.0 * scale,
                     toggle_zone: 0.0,
-                    action: RowAction::SetRoot(path.clone()),
+                    action: RowAction::SetRoot(path.clone(), false),
                 });
                 bx += seg_w;
                 if bx > vw - 260.0 * scale {
@@ -1506,11 +1508,11 @@ impl App {
             RowAction::PickFolder => {
                 if let Some(w) = self.window.clone() {
                     if let Some(dir) = crate::theme::platform::pick_folder(&w) {
-                        self.set_root(dir);
+                        self.set_root(dir, true);
                     }
                 }
             }
-            RowAction::SetRoot(path) => self.set_root(path.clone()),
+            RowAction::SetRoot(path, remember) => self.set_root(path.clone(), *remember),
             RowAction::PillFolderSearch => {
                 let q = self
                     .folder_search
@@ -1541,8 +1543,10 @@ impl App {
     }
 
     /// Point the whole browser (walker, tree, recent) at a new folder.
-    fn set_root(&mut self, dir: PathBuf) {
-        crate::browse::push_recent(&dir);
+    fn set_root(&mut self, dir: PathBuf, remember: bool) {
+        if remember {
+            crate::browse::push_recent(&dir);
+        }
         self.recent = crate::browse::load_recent();
         self.files_view = Some(FilesView::new(dir));
         self.tree_scroll = 0;
@@ -1776,7 +1780,7 @@ fn draw_tree_sidebar(
                 w: toc_px,
                 h: entry_h,
                 toggle_zone: 0.0,
-                action: RowAction::SetRoot(dir.clone()),
+                action: RowAction::SetRoot(dir.clone(), true),
             });
             row_i += 1;
             y += entry_h;
