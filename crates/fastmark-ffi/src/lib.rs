@@ -11,12 +11,14 @@
 //! NUL terminator). When `buf` is non-null and `cap` is sufficient, the
 //! bytes plus NUL are written.
 
-use std::ffi::{c_char, CStr, CString};
+#![allow(clippy::missing_safety_doc)] // FFI contracts documented at module level
+
+use std::ffi::{c_char, CStr};
 use std::sync::Mutex;
 
 use fastmark_core::{Block, Document, Parsed, PieceText, Style};
 
-struct DocBundle {
+pub struct DocBundle {
     doc: Document,
     parsed: Parsed,
 }
@@ -149,7 +151,7 @@ macro_rules! doc_ref {
 /// Load and parse a Markdown document. Returns null on failure (details in
 /// `fm_last_error`). Caller releases with `fm_release`.
 #[no_mangle]
-pub extern "C" fn fm_open(path: *const c_char) -> *mut DocBundle {
+pub unsafe extern "C" fn fm_open(path: *const c_char) -> *mut DocBundle {
     if path.is_null() {
         set_error("null path".into());
         return std::ptr::null_mut();
@@ -175,7 +177,7 @@ pub extern "C" fn fm_open(path: *const c_char) -> *mut DocBundle {
 
 /// Release a document handle.
 #[no_mangle]
-pub extern "C" fn fm_release(handle: *mut DocBundle) {
+pub unsafe extern "C" fn fm_release(handle: *mut DocBundle) {
     if !handle.is_null() {
         // SAFETY: handle came from fm_open; single release by contract.
         unsafe {
@@ -185,20 +187,24 @@ pub extern "C" fn fm_release(handle: *mut DocBundle) {
 }
 
 #[no_mangle]
-pub extern "C" fn fm_encoding(handle: *mut DocBundle, buf: *mut c_char, cap: usize) -> usize {
+pub unsafe extern "C" fn fm_encoding(
+    handle: *mut DocBundle,
+    buf: *mut c_char,
+    cap: usize,
+) -> usize {
     let b = doc_ref!(handle);
     fill(buf, cap, b.doc.encoding)
 }
 
 #[no_mangle]
-pub extern "C" fn fm_block_count(handle: *mut DocBundle) -> u32 {
+pub unsafe extern "C" fn fm_block_count(handle: *mut DocBundle) -> u32 {
     let b = doc_ref!(handle);
     b.parsed.blocks.len() as u32
 }
 
 /// JSON for one block (see lib docs for the schema). Buffer-fill.
 #[no_mangle]
-pub extern "C" fn fm_block_json(
+pub unsafe extern "C" fn fm_block_json(
     handle: *mut DocBundle,
     idx: u32,
     buf: *mut c_char,
@@ -215,7 +221,11 @@ pub extern "C" fn fm_block_json(
 
 /// Table of contents: [{level, block, byte, text}]. Buffer-fill.
 #[no_mangle]
-pub extern "C" fn fm_toc_json(handle: *mut DocBundle, buf: *mut c_char, cap: usize) -> usize {
+pub unsafe extern "C" fn fm_toc_json(
+    handle: *mut DocBundle,
+    buf: *mut c_char,
+    cap: usize,
+) -> usize {
     let b = doc_ref!(handle);
     let toc: Vec<serde_json::Value> = b
         .parsed
@@ -236,7 +246,7 @@ pub extern "C" fn fm_toc_json(handle: *mut DocBundle, buf: *mut c_char, cap: usi
 /// Case-insensitive substring search in the open document:
 /// [{byte, len}]. Buffer-fill.
 #[no_mangle]
-pub extern "C" fn fm_search_json(
+pub unsafe extern "C" fn fm_search_json(
     handle: *mut DocBundle,
     needle: *const c_char,
     limit: u32,
@@ -262,7 +272,7 @@ pub extern "C" fn fm_search_json(
 
 /// Map a source byte offset to its block index.
 #[no_mangle]
-pub extern "C" fn fm_byte_to_block(handle: *mut DocBundle, byte: u32) -> u32 {
+pub unsafe extern "C" fn fm_byte_to_block(handle: *mut DocBundle, byte: u32) -> u32 {
     let b = doc_ref!(handle);
     b.parsed
         .block_at_byte(byte as usize)
@@ -271,7 +281,7 @@ pub extern "C" fn fm_byte_to_block(handle: *mut DocBundle, byte: u32) -> u32 {
 
 /// Last error as a C string copy. Buffer-fill.
 #[no_mangle]
-pub extern "C" fn fm_last_error(buf: *mut c_char, cap: usize) -> usize {
+pub unsafe extern "C" fn fm_last_error(buf: *mut c_char, cap: usize) -> usize {
     let msg = LAST_ERROR.lock().unwrap().clone().unwrap_or_default();
     fill(buf, cap, &msg)
 }
@@ -279,7 +289,7 @@ pub extern "C" fn fm_last_error(buf: *mut c_char, cap: usize) -> usize {
 /// Line window around a byte offset: {"snippet": "...", "line": n}.
 /// For search-result previews. Buffer-fill.
 #[no_mangle]
-pub extern "C" fn fm_line_at(
+pub unsafe extern "C" fn fm_line_at(
     handle: *mut DocBundle,
     byte: u32,
     buf: *mut c_char,
@@ -332,9 +342,14 @@ pub extern "C" fn fm_line_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn open_and_dump_blocks() {
+        unsafe { open_and_dump_blocks_impl() }
+    }
+
+    unsafe fn open_and_dump_blocks_impl() {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/demo.md");
         let path = CString::new(p.to_string_lossy().as_bytes()).unwrap();
         let h = fm_open(path.as_ptr());
@@ -351,12 +366,12 @@ mod tests {
         assert_eq!(v["kind"], "heading");
         assert_eq!(v["level"], 1);
         // TOC + search + byte mapping.
-        let mut cap = fm_toc_json(h, std::ptr::null_mut(), 0);
+        let cap = fm_toc_json(h, std::ptr::null_mut(), 0);
         assert!(cap > 10);
         let mut buf2 = vec![0i8; cap];
         fm_toc_json(h, buf2.as_mut_ptr(), buf2.len());
         let needle = CString::new("markdown").unwrap();
-        let mut cap = fm_search_json(h, needle.as_ptr(), 100, std::ptr::null_mut(), 0);
+        let cap = fm_search_json(h, needle.as_ptr(), 100, std::ptr::null_mut(), 0);
         assert!(cap > 2);
         let mut buf3 = vec![0i8; cap];
         fm_search_json(h, needle.as_ptr(), 100, buf3.as_mut_ptr(), buf3.len());
@@ -365,6 +380,10 @@ mod tests {
 
     #[test]
     fn byte_to_block_roundtrip() {
+        unsafe { byte_to_block_roundtrip_impl() }
+    }
+
+    unsafe fn byte_to_block_roundtrip_impl() {
         let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/demo.md");
         let path = CString::new(p.to_string_lossy().as_bytes()).unwrap();
         let h = fm_open(path.as_ptr());
