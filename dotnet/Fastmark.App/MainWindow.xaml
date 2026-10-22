@@ -7,13 +7,10 @@
     Title="fastmark">
 
 
-  <NavigationView x:Name="Nav"
-                  PaneDisplayMode="Left"
-                  IsBackButtonVisible="Collapsed"
-                  IsSettingsVisible="False"
-                  OpenPaneLength="320"
-                  PaneTitle="fastmark">
-  <NavigationView.Resources>
+  <!-- Three panes: files (left, resizable) | content (*) | outline (right, resizable).
+       Splitters are the thin local:Splitter columns; collapse via headers or toolbar. -->
+  <Grid x:Name="Root" Background="{ThemeResource LayerFillColorDefaultBrush}">
+  <Grid.Resources>
     <DataTemplate x:Key="OutlineTemplate">
       <TextBlock Text="{Binding Text}" Margin="{Binding Indent}" FontSize="{Binding Size}"
                  TextTrimming="CharacterEllipsis"/>
@@ -31,44 +28,66 @@
                    TextTrimming="CharacterEllipsis" Margin="20,0,0,0"/>
       </StackPanel>
     </DataTemplate>
-  </NavigationView.Resources>
 
+    <Style x:Key="PanelHeaderText" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+      <Setter Property="Margin" Value="4,0,0,0"/>
+    </Style>
+    <Style x:Key="PanelHeaderButton" TargetType="Button">
+      <Setter Property="Width" Value="28"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Grid.Resources>
 
-    <NavigationView.PaneCustomContent>
-      <Grid>
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="Auto"/>
-          <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition x:Name="LeftColumn" Width="280" MinWidth="0"/>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition Width="*"/>
+      <ColumnDefinition Width="Auto"/>
+      <ColumnDefinition x:Name="RightColumn" Width="280" MinWidth="0"/>
+    </Grid.ColumnDefinitions>
 
-        <Button Grid.Row="0" x:Name="PickFolderButton" Click="OnPickFolder"
-                Margin="12,8,12,4" HorizontalAlignment="Stretch"
-                ToolTipService.ToolTip="Choose a folder"
-                Style="{StaticResource AccentButtonStyle}">
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <FontIcon Glyph="&#xE838;" FontSize="14"/>
-            <TextBlock Text="Open folder"/>
-          </StackPanel>
+    <!-- ===================== LEFT: file browser ===================== -->
+    <Grid x:Name="LeftPanel" Grid.Column="0" Margin="8,8,0,8">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+      <Grid Grid.Row="0" Margin="0,0,0,6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="FILES" Style="{StaticResource PanelHeaderText}"
+                   VerticalAlignment="Center"/>
+        <Button Grid.Column="1" Style="{StaticResource PanelHeaderButton}"
+                Click="OnCollapseLeft" ToolTipService.ToolTip="Collapse files panel">
+          <FontIcon Glyph="&#xE76B;" FontSize="12"/>
         </Button>
-
-        <TextBlock Grid.Row="1" Text="OUTLINE" FontSize="11" FontWeight="SemiBold"
-                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                   Margin="16,12,0,2"/>
-        <ListView Grid.Row="2" x:Name="OutlineList" SelectionMode="Single"
-                  IsItemClickEnabled="True" ItemClick="OnOutlineClick"
-                  ItemTemplate="{StaticResource OutlineTemplate}"
-                  MaxHeight="240" Margin="0,0,0,8"/>
-        <TextBlock Grid.Row="3" Text="FILES" FontSize="11" FontWeight="SemiBold"
-                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                   Margin="16,0,0,2"/>
-        <TreeView Grid.Row="4" x:Name="FileTree" ItemInvoked="OnTreeInvoke"/>
       </Grid>
-    </NavigationView.PaneCustomContent>
+      <Button Grid.Row="1" x:Name="PickFolderButton" Click="OnPickFolder"
+              Margin="0,0,0,6" HorizontalAlignment="Stretch"
+              ToolTipService.ToolTip="Choose a folder"
+              Style="{StaticResource AccentButtonStyle}">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <FontIcon Glyph="&#xE838;" FontSize="14"/>
+          <TextBlock Text="Open folder"/>
+        </StackPanel>
+      </Button>
+      <TreeView Grid.Row="2" x:Name="FileTree" ItemInvoked="OnTreeInvoke"/>
+    </Grid>
 
-    <Grid>
+    <local:Splitter Grid.Column="1" x:Name="LeftSplitter"/>
+
+    <!-- ===================== CENTER: content ===================== -->
+    <Grid Grid.Column="2" Margin="4,8">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/>
         <RowDefinition Height="*"/>
@@ -77,9 +96,15 @@
       <CommandBar Grid.Row="0" HorizontalAlignment="Stretch" DefaultLabelPosition="Right">
         <CommandBar.Content>
           <AutoSuggestBox x:Name="SearchBox" PlaceholderText="Search every file in the folder (Enter)"
-                          QueryIcon="Find" Width="420" Margin="12,4"
+                          QueryIcon="Find" Width="420" Margin="0,4,12,4"
                           QuerySubmitted="OnSearchSubmit"/>
         </CommandBar.Content>
+        <AppBarToggleButton x:Name="FilesToggle" Label="Files" Click="OnToggleLeft" IsChecked="True">
+          <FontIcon Glyph="&#xE8B7;" FontSize="16"/>
+        </AppBarToggleButton>
+        <AppBarToggleButton x:Name="OutlineToggle" Label="Outline" Click="OnToggleRight" IsChecked="True">
+          <FontIcon Glyph="&#xE8FD;" FontSize="16"/>
+        </AppBarToggleButton>
         <AppBarButton Label="File" Icon="OpenFile" Click="OnOpenFile"
                       ToolTipService.ToolTip="Open a Markdown file"/>
         <AppBarButton Label="Theme" Click="OnToggleTheme"
@@ -111,5 +136,30 @@
                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
       </StackPanel>
     </Grid>
-  </NavigationView>
+
+    <local:Splitter Grid.Column="3" x:Name="RightSplitter"/>
+
+    <!-- ===================== RIGHT: outline ===================== -->
+    <Grid x:Name="RightPanel" Grid.Column="4" Margin="0,8,8,8">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+      <Grid Grid.Row="0" Margin="0,0,0,6">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button Grid.Column="0" Style="{StaticResource PanelHeaderButton}"
+                Click="OnCollapseRight" ToolTipService.ToolTip="Collapse outline panel">
+          <FontIcon Glyph="&#xE76C;" FontSize="12"/>
+        </Button>
+        <TextBlock Grid.Column="1" Text="OUTLINE" Style="{StaticResource PanelHeaderText}"
+                   Margin="10,0,0,0" VerticalAlignment="Center"/>
+      </Grid>
+      <ListView Grid.Row="1" x:Name="OutlineList" SelectionMode="Single"
+                IsItemClickEnabled="True" ItemClick="OnOutlineClick"
+                ItemTemplate="{StaticResource OutlineTemplate}"/>
+    </Grid>
+  </Grid>
 </Window>

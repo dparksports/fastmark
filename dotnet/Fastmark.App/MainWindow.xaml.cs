@@ -22,6 +22,8 @@ namespace Fastmark;
 
 public sealed partial class MainWindow : Window
 {
+    private static MainWindow? _main;
+
     private DocHandle? _doc;
     private LazyBlockList? _blocks;
     private string _root = Directory.GetCurrentDirectory();
@@ -61,8 +63,128 @@ public sealed partial class MainWindow : Window
             }
             ShowEmpty();
         }
+        _main = this;
+        AttachSplitters();
+        RestoreLayout();
         _ = BuildTreeAsync(_root);
     }
+
+    // ------------------------------------------------------------------
+    // Panel layout: resizable + collapsible side panes, persisted
+    // ------------------------------------------------------------------
+
+    private void AttachSplitters()
+    {
+        LeftSplitter.Attach(LeftColumn, 280, 200, 480, x => x);
+        RightSplitter.Attach(RightColumn, 280, 200, 520,
+            x => Root.ActualWidth > 0 ? Root.ActualWidth - x : x);
+    }
+
+    private static string LayoutFile() => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "fastmark", "layout.txt");
+
+    internal static void SaveLayout()
+    {
+        if (_main is null)
+        {
+            return;
+        }
+        try
+        {
+            var lines = new[]
+            {
+                $"left={_main.LeftColumn.Width.Value:0}",
+                $"right={_main.RightColumn.Width.Value:0}",
+            };
+            System.IO.File.WriteAllLines(LayoutFile(), lines);
+        }
+        catch
+        {
+            /* layout persistence is best-effort */
+        }
+    }
+
+    private void RestoreLayout()
+    {
+        try
+        {
+            if (!System.IO.File.Exists(LayoutFile()))
+            {
+                return;
+            }
+            foreach (var line in System.IO.File.ReadAllLines(LayoutFile()))
+            {
+                var kv = line.Split('=', 2);
+                if (kv.Length != 2)
+                {
+                    continue;
+                }
+                if (double.TryParse(kv[1], out var w))
+                {
+                    if (kv[0] == "left")
+                    {
+                        LeftColumn.Width = new GridLength(Math.Clamp(w, 200, 480));
+                    }
+                    else if (kv[0] == "right")
+                    {
+                        RightColumn.Width = new GridLength(Math.Clamp(w, 200, 520));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            /* fresh layout on any parse trouble */
+        }
+    }
+
+    private void SetLeftPanel(bool visible)
+    {
+        LeftPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        LeftSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        LeftColumn.Width = visible ? new GridLength(LeftColumn.Width.Value > 0
+            ? LeftColumn.Width.Value : 280) : new GridLength(0);
+    }
+
+    private void SetRightPanel(bool visible)
+    {
+        RightPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        RightSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        RightColumn.Width = visible ? new GridLength(RightColumn.Width.Value > 0
+            ? RightColumn.Width.Value : 280) : new GridLength(0);
+    }
+
+    private bool LeftVisible => LeftPanel.Visibility == Visibility.Visible;
+    private bool RightVisible => RightPanel.Visibility == Visibility.Visible;
+
+    private void OnCollapseLeft(object sender, RoutedEventArgs e)
+    {
+        SetLeftPanel(false);
+        FilesToggle.IsChecked = false;
+    }
+
+    private void OnCollapseRight(object sender, RoutedEventArgs e)
+    {
+        SetRightPanel(false);
+        OutlineToggle.IsChecked = false;
+    }
+
+    private void OnToggleLeft(object sender, RoutedEventArgs e)
+    {
+        SetLeftPanel(!LeftVisible);
+        FilesToggle.IsChecked = LeftVisible;
+        SaveLayout();
+    }
+
+    private void OnToggleRight(object sender, RoutedEventArgs e)
+    {
+        SetRightPanel(!RightVisible);
+        OutlineToggle.IsChecked = RightVisible;
+        SaveLayout();
+    }
+
+
 
     // ------------------------------------------------------------------
     // Document
@@ -556,7 +678,7 @@ public sealed partial class MainWindow : Window
 
     private void OnToggleTheme(object sender, RoutedEventArgs e)
     {
-        Nav.RequestedTheme = Nav.RequestedTheme == ElementTheme.Dark
+        Root.RequestedTheme = Root.RequestedTheme == ElementTheme.Dark
             ? ElementTheme.Light
             : ElementTheme.Dark;
     }
