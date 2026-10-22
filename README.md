@@ -46,6 +46,15 @@ You can also just **drop any `.md` file onto the window**.
 
 ![Memory](docs/memory.svg)
 
+## Two editions
+
+- **fastmark** (native) — a WinUI 3 shell (Mica, Fluent controls, IME,
+  accessibility) over the same Rust engine via `fastmark-ffi`: the document
+  pipeline stays native-code fast while the UI is platform-native. Lives in
+  `dotnet/`. ~130 MB RAM, self-contained deployment.
+- **fastmark-classic** (`crates/fastmark-app`) — the pure-Rust wgpu viewer:
+  ~12 MB RAM, 3 MB binary, custom-drawn UI. Both ship from this repo.
+
 ## Design
 
 Layered-navy theme with one accent, rounded geometry, hover states, and

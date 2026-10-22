@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Fastmark.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Fastmark"
+    Title="fastmark">
+
+
+  <NavigationView x:Name="Nav"
+                  PaneDisplayMode="Left"
+                  IsBackButtonVisible="Collapsed"
+                  IsSettingsVisible="False"
+                  OpenPaneLength="320"
+                  PaneTitle="fastmark">
+  <NavigationView.Resources>
+    <DataTemplate x:Key="OutlineTemplate">
+      <TextBlock Text="{Binding Text}" Margin="{Binding Indent}" FontSize="{Binding Size}"
+                 TextTrimming="CharacterEllipsis"/>
+    </DataTemplate>
+    <DataTemplate x:Key="HitTemplate">
+      <StackPanel Spacing="2" Margin="0,2" Padding="8,6">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <FontIcon Glyph="&#xE8A5;" FontSize="12"
+                    Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+          <TextBlock Text="{Binding File}" FontWeight="SemiBold"/>
+          <TextBlock Text="{Binding Path}" Opacity="0.5" FontSize="11"
+                     TextTrimming="CharacterEllipsis" MaxWidth="440"/>
+        </StackPanel>
+        <TextBlock Text="{Binding Snippet}" Opacity="0.75" FontSize="12"
+                   TextTrimming="CharacterEllipsis" Margin="20,0,0,0"/>
+      </StackPanel>
+    </DataTemplate>
+  </NavigationView.Resources>
+
+
+    <NavigationView.PaneCustomContent>
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Button Grid.Row="0" x:Name="PickFolderButton" Click="OnPickFolder"
+                Margin="12,8,12,4" HorizontalAlignment="Stretch"
+                ToolTipService.ToolTip="Choose a folder"
+                Style="{StaticResource AccentButtonStyle}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <FontIcon Glyph="&#xE838;" FontSize="14"/>
+            <TextBlock Text="Open folder"/>
+          </StackPanel>
+        </Button>
+
+        <TextBlock Grid.Row="1" Text="OUTLINE" FontSize="11" FontWeight="SemiBold"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Margin="16,12,0,2"/>
+        <ListView Grid.Row="2" x:Name="OutlineList" SelectionMode="Single"
+                  IsItemClickEnabled="True" ItemClick="OnOutlineClick"
+                  ItemTemplate="{StaticResource OutlineTemplate}"
+                  MaxHeight="240" Margin="0,0,0,8"/>
+        <TextBlock Grid.Row="3" Text="FILES" FontSize="11" FontWeight="SemiBold"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   Margin="16,0,0,2"/>
+        <TreeView Grid.Row="4" x:Name="FileTree" ItemInvoked="OnTreeInvoke"/>
+      </Grid>
+    </NavigationView.PaneCustomContent>
+
+    <Grid>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto"/>
+        <RowDefinition Height="*"/>
+      </Grid.RowDefinitions>
+
+      <CommandBar Grid.Row="0" HorizontalAlignment="Stretch" DefaultLabelPosition="Right">
+        <CommandBar.Content>
+          <AutoSuggestBox x:Name="SearchBox" PlaceholderText="Search every file in the folder (Enter)"
+                          QueryIcon="Find" Width="420" Margin="12,4"
+                          QuerySubmitted="OnSearchSubmit"/>
+        </CommandBar.Content>
+        <AppBarButton Label="File" Icon="OpenFile" Click="OnOpenFile"
+                      ToolTipService.ToolTip="Open a Markdown file"/>
+        <AppBarButton Label="Theme" Click="OnToggleTheme"
+                      ToolTipService.ToolTip="Toggle light/dark">
+          <FontIcon Glyph="&#xE708;"/>
+        </AppBarButton>
+      </CommandBar>
+
+      <ListView Grid.Row="1" x:Name="Reader" SelectionMode="None"
+                ContainerContentChanging="OnBlockRealized"
+                Padding="24,8,32,24"/>
+
+      <ListView Grid.Row="1" x:Name="Results" Visibility="Collapsed"
+                IsItemClickEnabled="True" ItemClick="OnResultClick" Padding="16"
+                ItemTemplate="{StaticResource HitTemplate}"
+                SelectionMode="None"/>
+
+      <StackPanel Grid.Row="1" x:Name="EmptyState" VerticalAlignment="Center"
+                  HorizontalAlignment="Center" Spacing="12">
+        <FontIcon Glyph="&#xE8B7;" FontSize="44"
+                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+        <TextBlock Text="Open a folder of Markdown, or pick a file" HorizontalAlignment="Center"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      </StackPanel>
+    </Grid>
+  </NavigationView>
+</Window>

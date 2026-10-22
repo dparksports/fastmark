@@ -1,3 +1,6 @@
 /target
 bench-*.md
 *.zip
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/.vs/

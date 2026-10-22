@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/fastmark-core", "crates/fastmark-app"]
+members = ["crates/fastmark-core", "crates/fastmark-app", "crates/fastmark-ffi"]
 
 [workspace.package]
 # CalVer (semver allows only 3 components): additional releases on the same
