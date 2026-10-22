@@ -93,7 +93,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
-      - name: Package
+      - name: Package classic
         shell: bash
         run: |
           mkdir -p dist
@@ -101,6 +101,18 @@ jobs:
           cp -r samples dist/
           cp README.md LICENSE dist/
           cd dist && 7z a ../fastmark-windows-x64.zip . && cd ..
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: cargo build --release -p fastmark-ffi
+      - name: Package native (self-contained WinUI 3)
+        shell: bash
+        run: |
+          dotnet publish dotnet/Fastmark.App/Fastmark.App.csproj -c Release -o dist-native
+          cd dist-native && 7z a ../fastmark-native-windows-x64.zip . && cd ..
       - uses: softprops/action-gh-release@v2
         with:
-          files: fastmark-windows-x64.zip
+          files: |
+            fastmark-windows-x64.zip
+            fastmark-native-windows-x64.zip
