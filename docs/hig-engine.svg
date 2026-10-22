@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="580" viewBox="0 0 1200 580" font-family="-apple-system, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif">
+  <rect width="1200" height="580" fill="#ffffff"/>
+  <text x="80" y="96" font-size="44" font-weight="700" fill="#1d1d1f" letter-spacing="-0.8">The engine stays Rust. The pixels go native.</text>
+  <text x="80" y="132" font-size="19" fill="#6e6e73">Documents load, parse, and search in a memory-mapped Rust core — the UI only ever receives what’s on screen.</text>
+
+  <!-- pipeline cards -->
+  <g>
+    <rect x="80" y="180" width="236" height="150" rx="20" fill="#f5f5f7"/>
+    <text x="104" y="216" font-size="13" font-weight="600" fill="#0071e3" letter-spacing="0.8">STEP 1</text>
+    <text x="104" y="244" font-size="18" font-weight="700" fill="#1d1d1f">Memory map</text>
+    <text x="104" y="268" font-size="13" fill="#6e6e73">the file is mapped read-only;</text>
+    <text x="104" y="288" font-size="13" fill="#6e6e73">the OS owns the pages and</text>
+    <text x="104" y="308" font-size="13" fill="#6e6e73">reclaims them under pressure</text>
+
+    <rect x="358" y="180" width="236" height="150" rx="20" fill="#f5f5f7"/>
+    <text x="382" y="216" font-size="13" font-weight="600" fill="#0071e3" letter-spacing="0.8">STEP 2</text>
+    <text x="382" y="244" font-size="18" font-weight="700" fill="#1d1d1f">Streaming parse</text>
+    <text x="382" y="268" font-size="13" fill="#6e6e73">pulldown events build a flat</text>
+    <text x="382" y="288" font-size="13" fill="#6e6e73">block list; text stays as byte</text>
+    <text x="382" y="308" font-size="13" fill="#6e6e73">ranges — never copied</text>
+
+    <rect x="636" y="180" width="236" height="150" rx="20" fill="#f5f5f7"/>
+    <text x="660" y="216" font-size="13" font-weight="600" fill="#0071e3" letter-spacing="0.8">STEP 3</text>
+    <text x="660" y="244" font-size="18" font-weight="700" fill="#1d1d1f">On-demand C ABI</text>
+    <text x="660" y="268" font-size="13" fill="#6e6e73">one JSON block per visible</text>
+    <text x="660" y="288" font-size="13" fill="#6e6e73">item crosses to the shell —</text>
+    <text x="660" y="308" font-size="13" fill="#6e6e73">nothing else marshals</text>
+
+    <rect x="914" y="180" width="206" height="150" rx="20" fill="#f5f5f7"/>
+    <text x="938" y="216" font-size="13" font-weight="600" fill="#0071e3" letter-spacing="0.8">STEP 4</text>
+    <text x="938" y="244" font-size="18" font-weight="700" fill="#1d1d1f">Native render</text>
+    <text x="938" y="268" font-size="13" fill="#6e6e73">a virtualizing list realizes</text>
+    <text x="938" y="288" font-size="13" fill="#6e6e73">containers on demand;</text>
+    <text x="938" y="308" font-size="13" fill="#6e6e73">Fluent draws the rest</text>
+
+    <g stroke="#0071e3" stroke-width="2" fill="none">
+      <line x1="316" y1="255" x2="352" y2="255"/>
+      <line x1="594" y1="255" x2="630" y2="255"/>
+      <line x1="872" y1="255" x2="908" y2="255"/>
+      <path d="M 348 250 L 356 255 L 348 260" fill="#0071e3"/>
+      <path d="M 626 250 L 634 255 L 626 260" fill="#0071e3"/>
+      <path d="M 904 250 L 912 255 L 904 260" fill="#0071e3"/>
+    </g>
+  </g>
+
+  <!-- stat band -->
+  <g>
+    <rect x="80" y="380" width="1040" height="130" rx="20" fill="#f5f5f7"/>
+    <g text-anchor="middle">
+      <text x="212" y="432" font-size="34" font-weight="700" fill="#1d1d1f">~1.3 s</text>
+      <text x="212" y="462" font-size="13" fill="#6e6e73">open + parse a 100 MB file</text>
+      <text x="482" y="432" font-size="34" font-weight="700" fill="#1d1d1f">1.4 M</text>
+      <text x="482" y="462" font-size="13" fill="#6e6e73">blocks handled without materializing</text>
+      <text x="752" y="432" font-size="34" font-weight="700" fill="#1d1d1f">256</text>
+      <text x="752" y="462" font-size="13" fill="#6e6e73">blocks cached in the UI, ever</text>
+      <text x="986" y="432" font-size="34" font-weight="700" fill="#0071e3">UTF-16</text>
+      <text x="986" y="462" font-size="13" fill="#6e6e73">legacy encodings just open</text>
+    </g>
+    <g stroke="#e8e8ed" stroke-width="1">
+      <line x1="347" y1="408" x2="347" y2="482"/>
+      <line x1="617" y1="408" x2="617" y2="482"/>
+      <line x1="887" y1="408" x2="887" y2="482"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" font-family="-apple-system, 'SF Pro Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif">
+  <rect width="1200" height="560" fill="#ffffff"/>
+  <text x="80" y="96" font-size="44" font-weight="700" fill="#1d1d1f" letter-spacing="-0.8">Two editions. One engine.</text>
+  <text x="80" y="132" font-size="19" fill="#6e6e73">Pick the shell you want — both read the same documents with the same Rust core.</text>
+
+  <!-- native card -->
+  <g>
+    <rect x="80" y="176" width="500" height="330" rx="24" fill="#f5f5f7"/>
+    <text x="112" y="222" font-size="12" font-weight="600" fill="#0071e3" letter-spacing="1">FASTMARK NATIVE</text>
+    <text x="112" y="254" font-size="26" font-weight="700" fill="#1d1d1f">The full Windows experience</text>
+    <g font-size="15" fill="#1d1d1f">
+      <text x="112" y="296">WinUI 3 · Mica · Fluent controls</text>
+      <text x="112" y="326">IME-ready search, accessibility, pickers</text>
+      <text x="112" y="356">Three-pane layout with resizable panels</text>
+    </g>
+    <g text-anchor="middle">
+      <rect x="112" y="392" width="130" height="40" rx="20" fill="#ffffff"/>
+      <text x="177" y="417" font-size="14" font-weight="600" fill="#1d1d1f">~130 MB RAM</text>
+      <rect x="258" y="392" width="130" height="40" rx="20" fill="#ffffff"/>
+      <text x="323" y="417" font-size="14" font-weight="600" fill="#1d1d1f">48.7 MB zip</text>
+      <rect x="404" y="392" width="130" height="40" rx="20" fill="#ffffff"/>
+      <text x="469" y="417" font-size="14" font-weight="600" fill="#1d1d1f">.NET 10</text>
+    </g>
+    <text x="112" y="476" font-size="13" fill="#6e6e73">Unpackaged, self-contained — unzip and run.</text>
+  </g>
+
+  <!-- center pill -->
+  <g>
+    <rect x="577" y="316" width="46" height="46" rx="23" fill="#0071e3"/>
+    <text x="600" y="345" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">=</text>
+  </g>
+
+  <!-- classic card -->
+  <g>
+    <rect x="620" y="176" width="500" height="330" rx="24" fill="#f5f5f7"/>
+    <text x="652" y="222" font-size="12" font-weight="600" fill="#6e6e73" letter-spacing="1">FASTMARK CLASSIC</text>
+    <text x="652" y="254" font-size="26" font-weight="700" fill="#1d1d1f">The footprint champion</text>
+    <g font-size="15" fill="#1d1d1f">
+      <text x="652" y="296">Pure Rust: wgpu (DX12) + cosmic-text</text>
+      <text x="652" y="326">Streaming pipeline, virtualized layout</text>
+      <text x="652" y="356">Folder browser, tree, live reload</text>
+    </g>
+    <g text-anchor="middle">
+      <rect x="652" y="392" width="130" height="40" rx="20" fill="#ffffff"/>
+      <text x="717" y="417" font-size="14" font-weight="600" fill="#1d1d1f">~12 MB RAM</text>
+      <rect x="798" y="392" width="130" height="40" rx="20" fill="#ffffff"/>
+      <text x="863" y="417" font-size="14" font-weight="600" fill="#1d1d1f">3.2 MB zip</text>
+      <rect x="944" y="392" width="130" height="40" rx="20" fill="#ffffff"/>
+      <text x="1009" y="417" font-size="14" font-weight="600" fill="#1d1d1f">zero deps</text>
+    </g>
+    <text x="652" y="476" font-size="13" fill="#6e6e73">One 3 MB executable. Windows, Linux, macOS.</text>
+  </g>
+</svg>
