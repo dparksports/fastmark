@@ -90,7 +90,13 @@
 
       <ListView Grid.Row="1" x:Name="Reader" SelectionMode="None"
                 ContainerContentChanging="OnBlockRealized"
-                Padding="24,8,32,24"/>
+                Padding="24,8,32,24">
+        <ListView.ItemTemplate>
+          <DataTemplate>
+            <ContentPresenter/>
+          </DataTemplate>
+        </ListView.ItemTemplate>
+      </ListView>
 
       <ListView Grid.Row="1" x:Name="Results" Visibility="Collapsed"
                 IsItemClickEnabled="True" ItemClick="OnResultClick" Padding="16"

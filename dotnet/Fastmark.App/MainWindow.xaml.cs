@@ -33,13 +33,32 @@ public sealed partial class MainWindow : Window
         SystemBackdrop = new MicaBackdrop();
         Title = "fastmark";
 
-        if (startFile is not null && File.Exists(startFile))
+        // Resolve early: arguments (and shell paths) may be relative to a
+        // working directory that differs from ours.
+        string? abs = null;
+        if (startFile is not null)
         {
-            OpenDocument(startFile);
-            _root = Path.GetDirectoryName(startFile) ?? _root;
+            try
+            {
+                abs = Path.GetFullPath(startFile);
+            }
+            catch
+            {
+                abs = null;
+            }
+        }
+        if (abs is not null && File.Exists(abs))
+        {
+            Log($"start file resolved: {abs}");
+            OpenDocument(abs);
+            _root = Path.GetDirectoryName(abs) ?? _root;
         }
         else
         {
+            if (startFile is not null)
+            {
+                Log($"start file unusable: '{startFile}' -> '{abs}'");
+            }
             ShowEmpty();
         }
         _ = BuildTreeAsync(_root);
@@ -61,9 +80,11 @@ public sealed partial class MainWindow : Window
         var doc = DocHandle.Open(path);
         if (doc is null)
         {
+            Log($"open FAILED: {path}: {Ffi.LastError()}");
             _ = ShowErrorAsync($"Cannot open {Path.GetFileName(path)}: {Ffi.LastError()}");
             return;
         }
+        Log($"open ok: {path} blocks={doc.BlockCount} enc={doc.Encoding}");
         _doc?.Dispose();
         _doc = doc;
         _blocks = new LazyBlockList(doc);
@@ -109,14 +130,57 @@ public sealed partial class MainWindow : Window
     // Reader rendering: one container per block, visuals built in code
     // ------------------------------------------------------------------
 
+    private int _realized;
+
     private void OnBlockRealized(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
-        if (args.InRecycleQueue || args.Item is not BlockVm vm)
+        if (args.InRecycleQueue)
+        {
+            if (args.ItemContainer.ContentTemplateRoot is ContentPresenter cp)
+            {
+                cp.Content = null;
+            }
+            return;
+        }
+        if (args.Item is not BlockVm vm)
         {
             return;
         }
-        args.ItemContainer.Content = BuildBlockVisual(vm);
+        try
+        {
+            if (args.ItemContainer.ContentTemplateRoot is ContentPresenter cp)
+            {
+                cp.Content = BuildBlockVisual(vm);
+                _realized++;
+                if (_realized <= 3)
+                {
+                    Log($"realized block {vm.Index} kind={vm.Kind} lines={vm.Lines.Count}");
+                }
+            }
+            else
+            {
+                Log($"block {vm.Index}: no ContentPresenter root");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"block {vm.Index} render failed: {ex.Message}");
+        }
         args.Handled = true;
+    }
+
+    internal static void Log(string message)
+    {
+        try
+        {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fastmark-native.log"),
+                $"{DateTime.Now:HH:mm:ss.fff} {message}\n");
+        }
+        catch
+        {
+            /* logging must never crash the app */
+        }
     }
 
     private UIElement BuildBlockVisual(BlockVm vm)
@@ -365,6 +429,8 @@ public sealed partial class MainWindow : Window
         if (node is not null)
         {
             FileTree.RootNodes.Add(node);
+            node.IsExpanded = true;
+            Log($"tree root added: {root} children={node.Children.Count}");
         }
     }
 
@@ -435,7 +501,6 @@ public sealed partial class MainWindow : Window
             /* protected dir: leave whatever loaded */
         }
         node.HasUnrealizedChildren = false;
-        node.IsExpanded = node.Depth == 0;
     }
 
     private async void OnTreeInvoke(TreeView sender, TreeViewItemInvokedEventArgs args)
