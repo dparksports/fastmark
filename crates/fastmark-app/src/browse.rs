@@ -19,6 +19,13 @@ const SKIP_DIRS: &[&str] = &[
     ".git",
     ".hg",
     ".svn",
+    // Windows data trees and legacy junctions - never where user documents
+    // live, and junctions can loop.
+    "AppData",
+    "Application Data",
+    "Local Settings",
+    "$RECYCLE.BIN",
+    "ProgramData",
     ".venv",
     "node_modules",
     "target",
@@ -121,16 +128,26 @@ fn walk_md(dir: &Path, tx: &mpsc::Sender<FileEntry>) {
             continue;
         };
         for entry in read.flatten() {
-            let Ok(ft) = entry.file_type() else { continue };
+            // DirEntry::metadata is cached from the enumeration on Windows.
+            let Ok(md) = entry.metadata() else { continue };
             let path = entry.path();
-            if ft.is_dir() {
+            if md.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref()) {
+                if name.starts_with('.')
+                    || name.starts_with('$')
+                    || SKIP_DIRS.iter().any(|s| s.eq_ignore_ascii_case(&name))
+                {
+                    continue;
+                }
+                if is_hidden_or_reparse(&md) {
                     continue;
                 }
                 stack.push(path);
-            } else if ft.is_file() {
+            } else if md.is_file() {
+                if is_hidden_or_reparse(&md) {
+                    continue;
+                }
                 let name = entry.file_name();
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 if matches!(ext, "md" | "markdown" | "mdx") {
@@ -151,6 +168,22 @@ fn walk_md(dir: &Path, tx: &mpsc::Sender<FileEntry>) {
             }
         }
     }
+}
+
+/// Hidden or reparse-point (junction/symlink) entries never belong in a
+/// document browser, and following them risks cycles. No-ops elsewhere.
+#[cfg(windows)]
+fn is_hidden_or_reparse(md: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    let attrs = md.file_attributes();
+    attrs & FILE_ATTRIBUTE_HIDDEN != 0 || attrs & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_hidden_or_reparse(_md: &std::fs::Metadata) -> bool {
+    false
 }
 
 // ---------------------------------------------------------------------------
